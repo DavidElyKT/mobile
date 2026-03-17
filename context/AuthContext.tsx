@@ -28,7 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'mobile' });
+  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'mobile', path: 'auth' });
 
   // Load persisted tokens on mount
   useEffect(() => {
