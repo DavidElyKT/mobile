@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { SitesApi, UsersApi } from '@/services/api';
+import { Colors } from '@/constants/Colors';
 
 export default function NewSiteScreen() {
   const router = useRouter();
@@ -43,35 +44,80 @@ export default function NewSiteScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Text style={styles.label}>Customer *</Text>
-      <TextInput style={styles.input} value={customer} onChangeText={setCustomer} placeholder="Customer name" />
+      <TextInput
+        style={styles.input}
+        value={customer}
+        onChangeText={setCustomer}
+        placeholder="Customer name"
+        placeholderTextColor={Colors.textLight}
+      />
 
       <Text style={styles.label}>Project Number *</Text>
-      <TextInput style={styles.input} value={projectNumber} onChangeText={setProjectNumber} placeholder="e.g. KT-2024-001" />
+      <TextInput
+        style={styles.input}
+        value={projectNumber}
+        onChangeText={setProjectNumber}
+        placeholder="e.g. KT-2024-001"
+        placeholderTextColor={Colors.textLight}
+      />
 
       <Text style={styles.label}>Description</Text>
-      <TextInput style={[styles.input, styles.multiline]} value={projectDescription} onChangeText={setProjectDescription} placeholder="Optional description" multiline numberOfLines={3} />
+      <TextInput
+        style={[styles.input, styles.multiline]}
+        value={projectDescription}
+        onChangeText={setProjectDescription}
+        placeholder="Optional description"
+        placeholderTextColor={Colors.textLight}
+        multiline
+        numberOfLines={3}
+      />
 
       <Text style={styles.label}>Date *</Text>
-      <TextInput style={styles.input} value={date} onChangeText={setDate} placeholder="YYYY-MM-DD" />
+      <TextInput
+        style={styles.input}
+        value={date}
+        onChangeText={setDate}
+        placeholder="YYYY-MM-DD"
+        placeholderTextColor={Colors.textLight}
+      />
 
-      <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Site</Text>}
+      <Pressable
+        style={[styles.button, saving && styles.buttonDisabled]}
+        onPress={handleSave}
+        disabled={saving}
+      >
+        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Project</Text>}
       </Pressable>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 16 },
-  label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6, marginTop: 16 },
-  input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 15, color: '#111827' },
-  multiline: { height: 80, textAlignVertical: 'top' },
-  button: { backgroundColor: '#0078D4', borderRadius: 8, padding: 14, alignItems: 'center', marginTop: 24 },
+  label: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 6, marginTop: 20 },
+  input: {
+    backgroundColor: Colors.card,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 15,
+    color: Colors.text,
+  },
+  multiline: { height: 88, textAlignVertical: 'top' },
+  button: {
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 32,
+  },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  error: { color: '#EF4444', marginBottom: 8 },
+  error: { color: Colors.danger, marginBottom: 8, fontSize: 14 },
 });

@@ -1,12 +1,14 @@
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
+import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { ChecklistsApi, QuestionsApi, UsersApi } from '@/services/api';
+import { Colors } from '@/constants/Colors';
 
 export default function NewChecklistScreen() {
   const router = useRouter();
-  const { machine_id } = useLocalSearchParams<{ machine_id: string }>();
+  const { assembly_id } = useLocalSearchParams<{ assembly_id: string }>();
   const { getAccessToken } = useAuth();
   const [questionSets, setQuestionSets] = useState<any[]>([]);
   const [selectedSetIds, setSelectedSetIds] = useState<number[]>([]);
@@ -39,7 +41,7 @@ export default function NewChecklistScreen() {
       if (!token) return;
       const me = await UsersApi.me(token);
       const checklist = await ChecklistsApi.create(token, {
-        machine_id: Number(machine_id),
+        assembly_id: Number(assembly_id),
         assessor_id: me.user_id,
         date: new Date().toISOString().split('T')[0],
         question_set_ids: selectedSetIds,
@@ -48,12 +50,12 @@ export default function NewChecklistScreen() {
     } catch (e: any) { console.error(e); } finally { setSaving(false); }
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color="#0078D4" />;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={Colors.primary} />;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.heading}>Select question sets</Text>
-      <Text style={styles.sub}>The PUWER base set is always included.</Text>
+      <Text style={styles.heading}>Select Question Sets</Text>
+      <Text style={styles.sub}>The PUWER base set is always included and cannot be removed.</Text>
 
       {questionSets.map((set) => {
         const selected = selectedSetIds.includes(set.question_set_id);
@@ -65,10 +67,14 @@ export default function NewChecklistScreen() {
           >
             <View style={styles.setInfo}>
               <Text style={styles.setName}>{set.set_name}</Text>
-              {set.is_base && <Text style={styles.baseTag}>Required</Text>}
+              {set.is_base ? (
+                <Text style={styles.requiredTag}>Always required</Text>
+              ) : (
+                <Text style={styles.optionalTag}>Optional</Text>
+              )}
             </View>
             <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
-              {selected && <Text style={styles.checkmark}>✓</Text>}
+              {selected && <Feather name="check" size={14} color="#fff" />}
             </View>
           </Pressable>
         );
@@ -82,19 +88,49 @@ export default function NewChecklistScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9FAFB' },
+  container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 16 },
-  heading: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 4 },
-  sub: { fontSize: 13, color: '#6B7280', marginBottom: 24 },
-  setRow: { backgroundColor: '#fff', borderRadius: 10, padding: 16, marginBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 2, borderColor: '#E5E7EB' },
-  setRowSelected: { borderColor: '#0078D4' },
+  heading: { fontSize: 20, fontWeight: '700', color: Colors.text, marginBottom: 6 },
+  sub: { fontSize: 13, color: Colors.textMuted, marginBottom: 24, lineHeight: 18 },
+  setRow: {
+    backgroundColor: Colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  setRowSelected: { borderColor: Colors.primary },
   setInfo: { flex: 1 },
-  setName: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  baseTag: { fontSize: 11, color: '#0078D4', marginTop: 2 },
-  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#D1D5DB', alignItems: 'center', justifyContent: 'center' },
-  checkboxSelected: { backgroundColor: '#0078D4', borderColor: '#0078D4' },
-  checkmark: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  button: { backgroundColor: '#0078D4', borderRadius: 8, padding: 14, alignItems: 'center', marginTop: 24 },
+  setName: { fontSize: 15, fontWeight: '600', color: Colors.text, marginBottom: 4 },
+  requiredTag: { fontSize: 12, color: Colors.primary, fontWeight: '500' },
+  optionalTag: { fontSize: 12, color: Colors.textMuted },
+  checkbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    borderWidth: 2,
+    borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
+  button: {
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
 });

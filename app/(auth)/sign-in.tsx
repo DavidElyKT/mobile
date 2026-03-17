@@ -1,6 +1,7 @@
-import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { Colors } from '@/constants/Colors';
 
 export default function SignInScreen() {
   const { signIn } = useAuth();
@@ -21,10 +22,16 @@ export default function SignInScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.brand}>Knox Thomas</Text>
-      <Text style={styles.title}>PUWER Assessments</Text>
+      <View style={styles.brandBlock}>
+        <Image
+          source={{ uri: 'https://puwerappimages.blob.core.windows.net/puwerimages/largelogo.png' }}
+          style={styles.logo}
+        />
+        <Text style={styles.brand}>KNOX THOMAS</Text>
+        <Text style={styles.title}>PUWER Assessments</Text>
+      </View>
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Pressable
         style={[styles.button, loading && styles.buttonDisabled]}
@@ -46,42 +53,46 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: Colors.background,
     padding: 32,
   },
+  brandBlock: {
+    alignItems: 'center',
+    marginBottom: 56,
+  },
+  logo: {
+    width: 80,
+    height: 80,
+    resizeMode: 'contain',
+    marginBottom: 16,
+  },
   brand: {
-    fontSize: 14,
-    fontWeight: '600',
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    color: '#6B7280',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 2,
+    color: Colors.primary,
     marginBottom: 8,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
-    color: '#111827',
-    marginBottom: 48,
+    color: Colors.text,
   },
   button: {
-    backgroundColor: '#0078D4', // Microsoft blue
-    paddingVertical: 14,
-    paddingHorizontal: 32,
+    backgroundColor: Colors.primary,
+    height: 48,
+    paddingHorizontal: 40,
     borderRadius: 8,
-    minWidth: 240,
     alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 240,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  buttonDisabled: { opacity: 0.6 },
+  buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
   error: {
-    color: '#EF4444',
+    color: Colors.danger,
     marginBottom: 16,
     textAlign: 'center',
+    fontSize: 14,
   },
 });

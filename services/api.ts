@@ -107,8 +107,10 @@ export const QuestionsApi = {
 // ---------------------------------------------------------------------------
 
 export const ChecklistsApi = {
-  list: (token: string, machineId?: number) =>
-    request<any[]>(`/checklists${machineId ? `?machine_id=${machineId}` : ''}`, token),
+  list: (token: string, filters?: { assemblyId?: number }) => {
+    const qs = filters?.assemblyId ? `?assembly_id=${filters.assemblyId}` : '';
+    return request<any[]>(`/checklists${qs}`, token);
+  },
 
   get: (token: string, checklistId: number) =>
     request<any>(`/checklists/${checklistId}`, token),
@@ -143,12 +145,15 @@ export const ResponsesApi = {
 // ---------------------------------------------------------------------------
 
 export const RiskEvaluationsApi = {
-  list: (token: string, machineId?: number, checklistId?: number) => {
+  list: (token: string, opts?: { machineId?: number; assemblyId?: number; checklistId?: number }) => {
+    const { machineId, assemblyId, checklistId } = opts ?? {};
     const params = machineId
       ? `?machine_id=${machineId}`
-      : checklistId
-        ? `?checklist_id=${checklistId}`
-        : '';
+      : assemblyId
+        ? `?assembly_id=${assemblyId}`
+        : checklistId
+          ? `?checklist_id=${checklistId}`
+          : '';
     return request<any[]>(`/risk-evaluations${params}`, token);
   },
 

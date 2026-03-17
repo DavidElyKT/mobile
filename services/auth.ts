@@ -149,7 +149,11 @@ export async function refreshAccessToken(
 ): Promise<AuthTokens | null> {
   try {
     const tokenResult = await AuthSession.refreshAsync(
-      { clientId: CLIENT_ID, refreshToken },
+      {
+        clientId: CLIENT_ID,
+        refreshToken,
+        scopes: ['openid', 'profile', 'email', 'offline_access', API_SCOPE],
+      },
       discovery,
     );
 

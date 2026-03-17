@@ -1,4 +1,6 @@
-import { View, Text, TextInput, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import {
+  View, Text, TextInput, StyleSheet, Pressable, ScrollView, ActivityIndicator,
+} from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
@@ -6,11 +8,13 @@ import { MachinesApi } from '@/services/api';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
 
-export default function NewMachineScreen() {
+export default function EditMachineScreen() {
   const router = useRouter();
-  const { assembly_id } = useLocalSearchParams<{ assembly_id: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { getAccessToken } = useAuth();
   const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [nameRef, setNameRef] = useState('');
   const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
@@ -18,12 +22,26 @@ export default function NewMachineScreen() {
   const [description, setDescription] = useState('');
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [nameplateUrl, setNameplateUrl] = useState<string | null>(null);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getAccessToken().then((t) => { if (t) setToken(t); });
-  }, []);
+    (async () => {
+      const t = await getAccessToken();
+      if (!t) return;
+      setToken(t);
+      const data = await MachinesApi.get(t, Number(id));
+      setNameRef(data.machine_name_reference ?? '');
+      setManufacturer(data.manufacturer ?? '');
+      setModel(data.model ?? '');
+      setSerialNumber(data.serial_number ?? '');
+      setDescription(data.description ?? '');
+      setPictureUrl(data.picture_url ?? null);
+      setNameplateUrl(data.nameplate_photo_url ?? null);
+      setLoading(false);
+    })();
+  }, [id]);
 
   async function handleSave() {
     if (!nameRef.trim()) { setError('Machine name/reference is required.'); return; }
@@ -31,8 +49,7 @@ export default function NewMachineScreen() {
     try {
       const t = token ?? await getAccessToken();
       if (!t) return;
-      await MachinesApi.create(t, {
-        assembly_id: Number(assembly_id),
+      await MachinesApi.update(t, Number(id), {
         machine_name_reference: nameRef.trim(),
         manufacturer: manufacturer.trim() || undefined,
         model: model.trim() || undefined,
@@ -45,8 +62,10 @@ export default function NewMachineScreen() {
     } catch (e: any) { setError(e.message); } finally { setSaving(false); }
   }
 
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={Colors.primary} />;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Text style={styles.label}>Name / Reference *</Text>
@@ -112,12 +131,10 @@ export default function NewMachineScreen() {
             onUploaded={setNameplateUrl}
           />
         </View>
-      ) : (
-        <ActivityIndicator color={Colors.primary} style={{ marginVertical: 12 }} />
-      )}
+      ) : null}
 
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Sub-machine</Text>}
+        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
       </Pressable>
     </ScrollView>
   );
@@ -128,23 +145,14 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   label: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 6, marginTop: 20 },
   input: {
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-    color: Colors.text,
+    backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: 8, padding: 12, fontSize: 15, color: Colors.text,
   },
   multiline: { height: 88, textAlignVertical: 'top' },
   photoRow: { flexDirection: 'row', gap: 12 },
   button: {
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 32,
+    backgroundColor: Colors.primary, borderRadius: 8, height: 48,
+    alignItems: 'center', justifyContent: 'center', marginTop: 32,
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },

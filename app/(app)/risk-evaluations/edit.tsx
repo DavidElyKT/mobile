@@ -1,23 +1,26 @@
 import {
   View, Text, TextInput, StyleSheet, Pressable, ScrollView, ActivityIndicator,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
 import { useState, useEffect } from 'react';
-import { Feather } from '@expo/vector-icons';
 import { useAuth } from '@/context/AuthContext';
 import { RiskEvaluationsApi } from '@/services/api';
 import { RISK_LEVELS, HAZARD_CATEGORIES, RATING_COLOURS, evaluateRisk, type RiskLevel } from '@/constants/risk';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
 
-export default function NewRiskEvaluationScreen() {
+export default function EditRiskEvaluationScreen() {
   const router = useRouter();
-  const { machine_id, assembly_id, checklist_id, question_number } =
-    useLocalSearchParams<{ machine_id?: string; assembly_id?: string; checklist_id?: string; question_number?: string }>();
+  const navigation = useNavigation();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { getAccessToken } = useAuth();
 
   const [token, setToken] = useState<string | null>(null);
-  const [nonComplianceRef, setNonComplianceRef] = useState(question_number ?? '');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [nonComplianceRef, setNonComplianceRef] = useState('');
   const [hazardDescription, setHazardDescription] = useState('');
   const [hazardCategory, setHazardCategory] = useState<string>('');
   const [preControlSeverity, setPreControlSeverity] = useState<RiskLevel>('Low');
@@ -26,30 +29,29 @@ export default function NewRiskEvaluationScreen() {
   const [postControlSeverity, setPostControlSeverity] = useState<RiskLevel>('Low');
   const [postControlProbability, setPostControlProbability] = useState<RiskLevel>('Low');
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
 
   const preRisk = evaluateRisk(preControlSeverity, preControlProbability);
   const postRisk = evaluateRisk(postControlSeverity, postControlProbability);
 
   useEffect(() => {
-    getAccessToken().then((t) => { if (t) setToken(t); });
-  }, []);
-
-  function resetForm() {
-    setNonComplianceRef('');
-    setHazardDescription('');
-    setHazardCategory('');
-    setPreControlSeverity('Low');
-    setPreControlProbability('Low');
-    setControlDescription('');
-    setPostControlSeverity('Low');
-    setPostControlProbability('Low');
-    setPhotoUrl(null);
-    setError(null);
-    setSaved(false);
-  }
+    (async () => {
+      const t = await getAccessToken();
+      if (!t) return;
+      setToken(t);
+      const data = await RiskEvaluationsApi.get(t, Number(id));
+      navigation.setOptions({ title: data.non_compliance_reference || data.hazard_category });
+      setNonComplianceRef(data.non_compliance_reference ?? '');
+      setHazardDescription(data.hazard_description ?? '');
+      setHazardCategory(data.hazard_category ?? '');
+      setPreControlSeverity(data.pre_control_severity ?? 'Low');
+      setPreControlProbability(data.pre_control_probability ?? 'Low');
+      setControlDescription(data.control_description ?? '');
+      setPostControlSeverity(data.post_control_severity ?? 'Low');
+      setPostControlProbability(data.post_control_probability ?? 'Low');
+      setPhotoUrl(data.photo_url ?? null);
+      setLoading(false);
+    })();
+  }, [id]);
 
   async function handleSave() {
     if (!hazardDescription.trim() || !hazardCategory) {
@@ -57,14 +59,10 @@ export default function NewRiskEvaluationScreen() {
       return;
     }
     setSaving(true);
-    setError(null);
     try {
       const t = token ?? await getAccessToken();
       if (!t) return;
-      await RiskEvaluationsApi.create(t, {
-        ...(machine_id ? { machine_id: Number(machine_id) } : {}),
-        ...(assembly_id ? { assembly_id: Number(assembly_id) } : {}),
-        checklist_id: checklist_id ? Number(checklist_id) : undefined,
+      await RiskEvaluationsApi.update(t, Number(id), {
         non_compliance_reference: nonComplianceRef.trim() || undefined,
         hazard_description: hazardDescription.trim(),
         hazard_category: hazardCategory,
@@ -75,34 +73,11 @@ export default function NewRiskEvaluationScreen() {
         post_control_probability: postControlProbability,
         photo_url: photoUrl ?? undefined,
       });
-      setSaved(true);
+      router.back();
     } catch (e: any) { setError(e.message); } finally { setSaving(false); }
   }
 
-  // Post-save confirmation view
-  if (saved) {
-    return (
-      <View style={styles.savedContainer}>
-        <View style={styles.savedIcon}>
-          <Feather name="check-circle" size={48} color={Colors.success} />
-        </View>
-        <Text style={styles.savedTitle}>Hazard Saved</Text>
-        {nonComplianceRef ? (
-          <Text style={styles.savedRef}>{nonComplianceRef}</Text>
-        ) : null}
-        <View style={styles.savedActions}>
-          <Pressable style={[styles.button, styles.buttonSecondary]} onPress={resetForm}>
-            <Feather name="plus" size={16} color="#fff" />
-            <Text style={styles.buttonText}>Add Another</Text>
-          </Pressable>
-          <Pressable style={styles.button} onPress={() => router.back()}>
-            <Feather name="arrow-left" size={16} color="#fff" />
-            <Text style={styles.buttonText}>Done</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={Colors.primary} />;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -149,11 +124,7 @@ export default function NewRiskEvaluationScreen() {
           token={token}
           onUploaded={(url) => setPhotoUrl(url)}
         />
-      ) : (
-        <View style={styles.photoPlaceholder}>
-          <ActivityIndicator size="small" color={Colors.primary} />
-        </View>
-      )}
+      ) : null}
 
       <View style={styles.divider} />
       <Text style={styles.sectionHeading}>Pre-control Risk</Text>
@@ -179,7 +150,7 @@ export default function NewRiskEvaluationScreen() {
       <RiskBadge label="Post-control rating" rating={postRisk.rating} />
 
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Hazard</Text>}
+        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
       </Pressable>
     </ScrollView>
   );
@@ -243,15 +214,6 @@ const styles = StyleSheet.create({
   chipSelected: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   chipText: { fontSize: 13, color: Colors.text },
   chipTextSelected: { color: '#fff', fontWeight: '600' },
-  photoPlaceholder: {
-    height: 80,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   riskBadge: {
     borderRadius: 8,
     borderLeftWidth: 4,
@@ -275,24 +237,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 32,
-    flexDirection: 'row',
-    gap: 8,
   },
-  buttonSecondary: { backgroundColor: Colors.orange },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
   error: { color: Colors.danger, marginBottom: 8, fontSize: 14 },
-
-  // Post-save view
-  savedContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  savedIcon: { marginBottom: 16 },
-  savedTitle: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 6 },
-  savedRef: { fontSize: 14, color: Colors.textMuted, marginBottom: 32, textAlign: 'center' },
-  savedActions: { width: '100%', gap: 12 },
 });

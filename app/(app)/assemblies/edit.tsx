@@ -1,6 +1,6 @@
 import {
   View, Text, TextInput, StyleSheet, Pressable, ScrollView,
-  ActivityIndicator, Switch,
+  ActivityIndicator, Switch, Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -12,34 +12,44 @@ import PhotoPicker from '@/components/PhotoPicker';
 
 type AssetType = 'standalone' | 'assembly';
 
-export default function NewAssetScreen() {
+export default function EditAssetScreen() {
   const router = useRouter();
-  const { site_id } = useLocalSearchParams<{ site_id: string }>();
+  const { id } = useLocalSearchParams<{ id: string }>();
   const { getAccessToken } = useAuth();
   const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // Core fields
   const [assetName, setAssetName] = useState('');
   const [description, setDescription] = useState('');
   const [isInUse, setIsInUse] = useState(true);
   const [assetType, setAssetType] = useState<AssetType>('standalone');
-
-  // Standalone-only fields
   const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
-
-  // Photos
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [nameplateUrl, setNameplateUrl] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAssembly, setSavedAssembly] = useState<any>(null);
 
   useEffect(() => {
-    getAccessToken().then((t) => { if (t) setToken(t); });
-  }, []);
+    (async () => {
+      const t = await getAccessToken();
+      if (!t) return;
+      setToken(t);
+      const data = await AssembliesApi.get(t, Number(id));
+      setAssetName(data.assembly_name ?? '');
+      setDescription(data.description ?? '');
+      setIsInUse(data.is_in_use ?? true);
+      setAssetType(data.asset_type ?? 'standalone');
+      setManufacturer(data.manufacturer ?? '');
+      setModel(data.model ?? '');
+      setSerialNumber(data.serial_number ?? '');
+      setPictureUrl(data.picture_url ?? null);
+      setNameplateUrl(data.nameplate_photo_url ?? null);
+      setLoading(false);
+    })();
+  }, [id]);
 
   async function handleSave() {
     if (!assetName.trim()) { setError('Asset name is required.'); return; }
@@ -47,65 +57,27 @@ export default function NewAssetScreen() {
     try {
       const t = token ?? await getAccessToken();
       if (!t) return;
-      const created = await AssembliesApi.create(t, {
-        site_id: Number(site_id),
+      await AssembliesApi.update(t, Number(id), {
         assembly_name: assetName.trim(),
         description: description.trim() || undefined,
         is_in_use: isInUse,
         asset_type: assetType,
-        ...(assetType === 'standalone' && {
-          manufacturer: manufacturer.trim() || undefined,
-          model: model.trim() || undefined,
-          serial_number: serialNumber.trim() || undefined,
-        }),
+        manufacturer: assetType === 'standalone' ? (manufacturer.trim() || undefined) : undefined,
+        model: assetType === 'standalone' ? (model.trim() || undefined) : undefined,
+        serial_number: assetType === 'standalone' ? (serialNumber.trim() || undefined) : undefined,
         picture_url: pictureUrl || undefined,
-        nameplate_photo_url: nameplateUrl || undefined,
+        nameplate_photo_url: assetType === 'standalone' ? (nameplateUrl || undefined) : undefined,
       });
-      if (assetType === 'assembly') {
-        setSavedAssembly(created);
-      } else {
-        router.back();
-      }
+      router.back();
     } catch (e: any) { setError(e.message); } finally { setSaving(false); }
   }
 
-  if (savedAssembly) {
-    return (
-      <View style={styles.promptContainer}>
-        <View style={styles.promptIcon}>
-          <Feather name="check-circle" size={48} color={Colors.success} />
-        </View>
-        <Text style={styles.promptTitle}>{savedAssembly.assembly_name}</Text>
-        <Text style={styles.promptBody}>
-          Would you like to add sub-machines to this assembly now?
-        </Text>
-        <View style={styles.promptActions}>
-          <Pressable
-            style={[styles.button, styles.buttonSecondary]}
-            onPress={() => router.push({
-              pathname: '/(app)/machines/new',
-              params: { assembly_id: savedAssembly.assembly_id },
-            })}
-          >
-            <Feather name="plus" size={16} color="#fff" />
-            <Text style={styles.buttonText}>Add Sub-machine</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.button, styles.buttonNeutral]}
-            onPress={() => router.replace(`/(app)/assemblies/${savedAssembly.assembly_id}`)}
-          >
-            <Text style={[styles.buttonText, { color: Colors.text }]}>Done</Text>
-          </Pressable>
-        </View>
-      </View>
-    );
-  }
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={Colors.primary} />;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {/* Asset Name */}
       <Text style={styles.label}>Asset Name *</Text>
       <TextInput
         style={styles.input}
@@ -115,7 +87,6 @@ export default function NewAssetScreen() {
         placeholderTextColor={Colors.textLight}
       />
 
-      {/* Description */}
       <Text style={styles.label}>Description</Text>
       <TextInput
         style={[styles.input, styles.multiline]}
@@ -127,7 +98,6 @@ export default function NewAssetScreen() {
         numberOfLines={3}
       />
 
-      {/* In use */}
       <View style={styles.switchRow}>
         <View style={styles.switchInfo}>
           <Text style={styles.switchLabel}>Asset currently in use</Text>
@@ -141,7 +111,6 @@ export default function NewAssetScreen() {
         />
       </View>
 
-      {/* Asset type */}
       <Text style={styles.label}>Asset Type *</Text>
       <View style={styles.typeRow}>
         <Pressable
@@ -154,9 +123,7 @@ export default function NewAssetScreen() {
           <Text style={[styles.typeLabel, assetType === 'standalone' && styles.typeLabelActive]}>
             Standalone{'\n'}Machine
           </Text>
-          <Text style={styles.typeSub}>Single machine{'\n'}with nameplate</Text>
         </Pressable>
-
         <Pressable
           style={[styles.typeCard, assetType === 'assembly' && styles.typeCardActive]}
           onPress={() => setAssetType('assembly')}
@@ -167,18 +134,15 @@ export default function NewAssetScreen() {
           <Text style={[styles.typeLabel, assetType === 'assembly' && styles.typeLabelActive]}>
             Assembly of{'\n'}Machines
           </Text>
-          <Text style={styles.typeSub}>Multiple machines{'\n'}(e.g. production line)</Text>
         </Pressable>
       </View>
 
-      {/* Standalone-only: nameplate fields */}
       {assetType === 'standalone' && (
         <View style={styles.section}>
           <View style={styles.sectionHeadRow}>
             <Feather name="tag" size={13} color={Colors.primary} />
             <Text style={styles.sectionHead}>Nameplate Details</Text>
           </View>
-
           <Text style={styles.label}>Manufacturer</Text>
           <TextInput
             style={styles.input}
@@ -187,7 +151,6 @@ export default function NewAssetScreen() {
             placeholder="e.g. Mazak"
             placeholderTextColor={Colors.textLight}
           />
-
           <Text style={styles.label}>Model</Text>
           <TextInput
             style={styles.input}
@@ -196,7 +159,6 @@ export default function NewAssetScreen() {
             placeholder="e.g. QT-200"
             placeholderTextColor={Colors.textLight}
           />
-
           <Text style={styles.label}>Serial Number</Text>
           <TextInput
             style={styles.input}
@@ -208,7 +170,6 @@ export default function NewAssetScreen() {
         </View>
       )}
 
-      {/* Photos */}
       <Text style={styles.label}>Photos</Text>
       {token ? (
         <View style={styles.photoRow}>
@@ -227,12 +188,10 @@ export default function NewAssetScreen() {
             />
           )}
         </View>
-      ) : (
-        <ActivityIndicator color={Colors.primary} style={{ marginVertical: 12 }} />
-      )}
+      ) : null}
 
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
-        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Asset</Text>}
+        {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
       </Pressable>
     </ScrollView>
   );
@@ -242,102 +201,43 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 16, paddingBottom: 40 },
   label: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 6, marginTop: 20 },
-
   input: {
-    backgroundColor: Colors.card,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
-    color: Colors.text,
+    backgroundColor: Colors.card, borderWidth: 1, borderColor: Colors.border,
+    borderRadius: 8, padding: 12, fontSize: 15, color: Colors.text,
   },
   multiline: { height: 88, textAlignVertical: 'top' },
-
   switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.card,
+    borderRadius: 12, padding: 16, marginTop: 20, borderWidth: 1, borderColor: Colors.border, gap: 12,
   },
   switchInfo: { flex: 1 },
   switchLabel: { fontSize: 14, fontWeight: '600', color: Colors.text, marginBottom: 2 },
   switchSub: { fontSize: 12, color: Colors.textMuted },
-
   typeRow: { flexDirection: 'row', gap: 12 },
   typeCard: {
-    flex: 1,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 2,
-    borderColor: Colors.border,
+    flex: 1, backgroundColor: Colors.card, borderRadius: 12, padding: 16,
+    alignItems: 'center', gap: 8, borderWidth: 2, borderColor: Colors.border,
   },
   typeCardActive: { borderColor: Colors.primary, backgroundColor: Colors.primary + '08' },
   typeIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.background,
+    alignItems: 'center', justifyContent: 'center',
   },
   typeIconWrapActive: { backgroundColor: Colors.primary },
   typeLabel: { fontSize: 13, fontWeight: '700', color: Colors.textMuted, textAlign: 'center' },
   typeLabelActive: { color: Colors.primary },
-  typeSub: { fontSize: 11, color: Colors.textLight, textAlign: 'center', lineHeight: 16 },
-
   section: {
-    marginTop: 8,
-    backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginTop: 8, backgroundColor: Colors.card, borderRadius: 12,
+    padding: 16, borderWidth: 1, borderColor: Colors.border,
   },
   sectionHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
   sectionHead: { fontSize: 12, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.6 },
-
   photoRow: { flexDirection: 'row', gap: 12 },
   button: {
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 32,
-    flexDirection: 'row',
-    gap: 8,
+    backgroundColor: Colors.primary, borderRadius: 8, height: 48,
+    alignItems: 'center', justifyContent: 'center', marginTop: 32,
   },
-  buttonSecondary: { backgroundColor: Colors.orange },
-  buttonNeutral: { backgroundColor: Colors.border },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
   error: { color: Colors.danger, marginBottom: 8, fontSize: 14 },
-
-  // Post-save prompt
-  promptContainer: {
-    flex: 1,
-    backgroundColor: Colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  promptIcon: { marginBottom: 20 },
-  promptTitle: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 12, textAlign: 'center' },
-  promptBody: {
-    fontSize: 15,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 36,
-  },
-  promptActions: { width: '100%', gap: 12 },
 });
