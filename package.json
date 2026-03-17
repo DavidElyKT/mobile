@@ -7,7 +7,7 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "eas-build-post-install": "mkdir -p .expo/web"
+    "postinstall": "node scripts/patchImageUtils.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
