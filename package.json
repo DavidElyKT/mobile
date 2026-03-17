@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "eas-build-post-install": "mkdir -p .expo/web"
   },
   "dependencies": {
     "@nozbe/watermelondb": "^0.25.5",
