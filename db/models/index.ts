@@ -1,11 +1,9 @@
-// WatermelonDB model stubs — decorator syntax requires a custom dev build.
-// Real model implementations are preserved alongside as *.model.ts files and
-// will replace these stubs when running: npx expo prebuild
-export class Site {}
-export class Assembly {}
-export class Machine {}
-export class QuestionSet {}
-export class Question {}
-export class ChecklistInstance {}
-export class ChecklistResponse {}
-export class RiskEvaluation {}
+export { default as Site } from './Site.model';
+export { default as Assembly } from './Assembly.model';
+export { default as Machine } from './Machine.model';
+export { default as QuestionSet } from './QuestionSet.model';
+export { default as Question } from './Question.model';
+export { default as ChecklistInstance } from './ChecklistInstance.model';
+export { default as ChecklistResponse } from './ChecklistResponse.model';
+export { default as RiskEvaluation } from './RiskEvaluation.model';
+export type { RiskLevel, HazardCategory } from './RiskEvaluation.model';

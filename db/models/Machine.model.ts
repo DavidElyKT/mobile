@@ -12,20 +12,22 @@ export default class Machine extends Model {
     risk_evaluations: { type: 'has_many' as const, foreignKey: 'machine_id' },
   };
 
-  @field('server_id') serverId!: number | null;
-  @field('assembly_id') assemblyId!: string;
-  @field('machine_name_reference') machineNameReference!: string;
-  @field('serial_number') serialNumber!: string;
-  @field('manufacturer') manufacturer!: string;
-  @field('model') model!: string;
-  @field('description') description!: string;
-  @field('picture_url') pictureUrl!: string;
-  @field('nameplate_photo_url') nameplatePhotoUrl!: string;
-  @field('is_synced') isSynced!: boolean;
-  @readonly @date('created_at') createdAt!: Date;
-  @date('updated_at') updatedAt!: Date;
+  @field('server_id') declare serverId: number | null;
+  @field('assembly_id') declare assemblyId: string;
+  @field('machine_name_reference') declare machineNameReference: string;
+  @field('machine_category') declare machineCategory: string | null;
+  @field('machine_use') declare machineUse: string | null;
+  @field('serial_number') declare serialNumber: string;
+  @field('manufacturer') declare manufacturer: string;
+  @field('model') declare model: string;
+  @field('description') declare description: string;
+  @field('picture_url') declare pictureUrl: string;
+  @field('nameplate_photo_url') declare nameplatePhotoUrl: string;
+  @field('is_synced') declare isSynced: boolean;
+  @readonly @date('created_at') declare createdAt: Date;
+  @date('updated_at') declare updatedAt: Date;
 
-  @relation('assemblies', 'assembly_id') assembly!: Assembly;
-  @children('checklist_instances') checklistInstances!: Query<ChecklistInstance>;
-  @children('risk_evaluations') riskEvaluations!: Query<RiskEvaluation>;
+  @relation('assemblies', 'assembly_id') declare assembly: Assembly;
+  @children('checklist_instances') declare checklistInstances: Query<ChecklistInstance>;
+  @children('risk_evaluations') declare riskEvaluations: Query<RiskEvaluation>;
 }

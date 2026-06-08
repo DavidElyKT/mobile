@@ -1,5 +1,5 @@
 export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:7071/api';
+  process.env.EXPO_PUBLIC_API_URL ?? 'https://puwer-app-hydcagcwezb3cacy.uksouth-01.azurewebsites.net/api';
 
 export const TENANT_ID =
   process.env.EXPO_PUBLIC_TENANT_ID ?? '';

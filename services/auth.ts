@@ -49,6 +49,7 @@ export interface UserProfile {
   oid: string;
   name: string;
   email: string;
+  role: string; // extension_role from Entra ID custom attribute
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +188,7 @@ export function parseUserProfile(idToken: string): UserProfile | null {
       oid: decoded.oid ?? '',
       name: decoded.name ?? decoded.preferred_username ?? '',
       email: decoded.preferred_username ?? decoded.email ?? '',
+      role: decoded.extension_role ?? decoded.roles?.[0] ?? '',
     };
   } catch {
     return null;

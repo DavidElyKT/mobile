@@ -19,8 +19,16 @@ async function request<T>(
   });
 
   if (!response.ok) {
-    const body = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(body.error ?? `HTTP ${response.status}`);
+    const text = await response.text().catch(() => '');
+    console.error(`[API] ${options.method ?? 'GET'} ${path} → ${response.status}`, text.slice(0, 500));
+    let message: string;
+    try {
+      const body = JSON.parse(text);
+      message = body.error ?? `HTTP ${response.status}`;
+    } catch {
+      message = text || `HTTP ${response.status}`;
+    }
+    throw new Error(message);
   }
 
   if (response.status === 204) return undefined as T;
@@ -44,8 +52,8 @@ export const SitesApi = {
   update: (token: string, siteId: number, body: object) =>
     request<any>(`/sites/${siteId}`, token, { method: 'PUT', body: JSON.stringify(body) }),
 
-  delete: (token: string, siteId: number) =>
-    request<void>(`/sites/${siteId}`, token, { method: 'DELETE' }),
+  delete: (token: string, siteId: number, deletePhotos = false) =>
+    request<void>(`/sites/${siteId}${deletePhotos ? '?delete_photos=true' : ''}`, token, { method: 'DELETE' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -95,11 +103,17 @@ export const MachinesApi = {
 // ---------------------------------------------------------------------------
 
 export const QuestionsApi = {
-  listSets: (token: string) =>
-    request<any[]>('/question-sets', token),
+  listSets: (token: string, appliesTo?: 'assembly' | 'site') =>
+    request<any[]>(`/question-sets${appliesTo ? `?applies_to=${appliesTo}` : ''}`, token),
 
   list: (token: string, questionSetId?: number) =>
     request<any[]>(`/questions${questionSetId ? `?question_set_id=${questionSetId}` : ''}`, token),
+
+  updatePinnedNote: (token: string, questionId: number, pinnedNote: string | null) =>
+    request<any>(`/questions/${questionId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ pinned_note: pinnedNote || null }),
+    }),
 };
 
 // ---------------------------------------------------------------------------
@@ -107,8 +121,12 @@ export const QuestionsApi = {
 // ---------------------------------------------------------------------------
 
 export const ChecklistsApi = {
-  list: (token: string, filters?: { assemblyId?: number }) => {
-    const qs = filters?.assemblyId ? `?assembly_id=${filters.assemblyId}` : '';
+  list: (token: string, filters?: { assemblyId?: number; siteId?: number }) => {
+    const qs = filters?.assemblyId
+      ? `?assembly_id=${filters.assemblyId}`
+      : filters?.siteId
+        ? `?site_id=${filters.siteId}`
+        : '';
     return request<any[]>(`/checklists${qs}`, token);
   },
 
@@ -138,6 +156,9 @@ export const ResponsesApi = {
 
   update: (token: string, responseId: number, body: object) =>
     request<any>(`/responses/${responseId}`, token, { method: 'PUT', body: JSON.stringify(body) }),
+
+  delete: (token: string, responseId: number) =>
+    request<void>(`/responses/${responseId}`, token, { method: 'DELETE' }),
 };
 
 // ---------------------------------------------------------------------------
@@ -145,15 +166,17 @@ export const ResponsesApi = {
 // ---------------------------------------------------------------------------
 
 export const RiskEvaluationsApi = {
-  list: (token: string, opts?: { machineId?: number; assemblyId?: number; checklistId?: number }) => {
-    const { machineId, assemblyId, checklistId } = opts ?? {};
+  list: (token: string, opts?: { machineId?: number; assemblyId?: number; siteId?: number; checklistId?: number }) => {
+    const { machineId, assemblyId, siteId, checklistId } = opts ?? {};
     const params = machineId
       ? `?machine_id=${machineId}`
       : assemblyId
         ? `?assembly_id=${assemblyId}`
-        : checklistId
-          ? `?checklist_id=${checklistId}`
-          : '';
+        : siteId
+          ? `?site_id=${siteId}`
+          : checklistId
+            ? `?checklist_id=${checklistId}`
+            : '';
     return request<any[]>(`/risk-evaluations${params}`, token);
   },
 
@@ -185,20 +208,25 @@ export const UsersApi = {
 
 export const SyncApi = {
   pull: (token: string, lastPulledAt?: string) =>
-    request<any>(
+    request<{
+      changes: Record<string, { created: any[]; updated: any[]; deleted: any[] }>;
+      current_ids: Record<string, number[]>;
+      timestamp: number;
+    }>(
       `/sync/pull${lastPulledAt ? `?last_pulled_at=${encodeURIComponent(lastPulledAt)}` : ''}`,
       token,
     ),
 
   push: (token: string, changes: object) =>
-    request<{ ok: boolean }>('/sync/push', token, {
-      method: 'POST',
-      body: JSON.stringify({ changes }),
-    }),
+    request<{ ok: boolean; id_map?: Record<string, Array<{ local_id: string; server_id: number }>> }>(
+      '/sync/push', token, {
+        method: 'POST',
+        body: JSON.stringify({ changes }),
+      }),
 
-  getPhotoUploadUrl: (token: string, filename: string, contentType: string) =>
-    request<{ upload_url: string; blob_url: string }>('/photos/upload-url', token, {
+  uploadPhoto: (token: string, filename: string, contentType: string, base64: string) =>
+    request<{ url: string }>('/photos', token, {
       method: 'POST',
-      body: JSON.stringify({ filename, content_type: contentType }),
+      body: JSON.stringify({ filename, content_type: contentType, data: base64 }),
     }),
 };

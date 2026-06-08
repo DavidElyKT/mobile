@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "PUWER App - Internal",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "mobile",
+    "scheme": "puwerapp",
     "userInterfaceStyle": "automatic",
     "splash": {
       "image": "./assets/images/splash-icon.png",
@@ -14,19 +14,24 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.davidely93.mobile",
+      "bundleIdentifier": "com.knoxthomas.puwer",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/icon.png",
+        "backgroundColor": "#3347E3"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.knoxthomas.puwer",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -35,7 +40,14 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow PUWER App to access your photos for evidence upload.",
+          "cameraPermission": "Allow PUWER App to use the camera to capture assessment photos."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -45,6 +57,13 @@
       "eas": {
         "projectId": "d6ccb251-3667-4780-81d4-a15f28fc648b"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/d6ccb251-3667-4780-81d4-a15f28fc648b",
+      "checkAutomatically": "ON_LOAD"
     }
   }
 }

@@ -1,25 +1,31 @@
 import { Model, Query } from '@nozbe/watermelondb';
 import { field, date, children, readonly, relation } from '@nozbe/watermelondb/decorators';
-import Machine from './Machine';
+import Assembly from './Assembly';
+import Site from './Site';
 import ChecklistResponse from './ChecklistResponse';
 
 export default class ChecklistInstance extends Model {
   static table = 'checklist_instances';
   static associations = {
-    machines: { type: 'belongs_to' as const, key: 'machine_id' },
+    assemblies: { type: 'belongs_to' as const, key: 'assembly_id' },
+    sites: { type: 'belongs_to' as const, key: 'site_id' },
     checklist_responses: { type: 'has_many' as const, foreignKey: 'checklist_id' },
   };
 
-  @field('server_id') serverId!: number | null;
-  @field('machine_id') machineId!: string;
-  @field('assessor_id') assessorId!: number;
-  @field('assessor_name') assessorName!: string;
-  @field('date') date!: string;
-  @field('status') status!: 'In Progress' | 'Complete';
-  @field('is_synced') isSynced!: boolean;
-  @readonly @date('created_at') createdAt!: Date;
-  @date('updated_at') updatedAt!: Date;
+  @field('server_id') declare serverId: number | null;
+  @field('assembly_id') declare assemblyId: string | null;
+  @field('site_id') declare siteId: string | null;
+  @field('assessor_id') declare assessorId: number;
+  @field('assessor_name') declare assessorName: string;
+  @field('date') declare date: string;
+  @field('status') declare status: 'In Progress' | 'Complete';
+  // JSON string of server question_set_ids, e.g. "[1,2]"
+  @field('question_set_ids') declare questionSetIds: string | null;
+  @field('is_synced') declare isSynced: boolean;
+  @readonly @date('created_at') declare createdAt: Date;
+  @date('updated_at') declare updatedAt: Date;
 
-  @relation('machines', 'machine_id') machine!: Machine;
-  @children('checklist_responses') responses!: Query<ChecklistResponse>;
+  @relation('assemblies', 'assembly_id') declare assembly: Assembly;
+  @relation('sites', 'site_id') declare site: Site;
+  @children('checklist_responses') declare responses: Query<ChecklistResponse>;
 }

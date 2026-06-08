@@ -1,21 +1,36 @@
-// WatermelonDB requires JSI native modules and a custom dev build.
-// This stub keeps imports happy while running in Expo Go.
-// Uncomment and replace with the real implementation once you run:
-//   npx expo prebuild && npx expo run:android  (or run:ios)
-//
-// import { Database } from '@nozbe/watermelondb';
-// import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
-// import schema from './schema';
-// import { Site, Assembly, Machine, QuestionSet, Question,
-//   ChecklistInstance, ChecklistResponse, RiskEvaluation } from './models';
-//
-// const adapter = new SQLiteAdapter({ schema, dbName: 'puwer', jsi: true });
-// export const database = new Database({
-//   adapter,
-//   modelClasses: [Site, Assembly, Machine, QuestionSet, Question,
-//     ChecklistInstance, ChecklistResponse, RiskEvaluation],
-// });
+import { Database } from '@nozbe/watermelondb';
+import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
+import schema from './schema';
+import migrations from './migrations';
+import {
+  Site, Assembly, Machine, QuestionSet, Question,
+  ChecklistInstance, ChecklistResponse, RiskEvaluation,
+} from './models';
 
-export const database = null as any;
+let _database: Database | null = null;
+
+export function getDatabase(): Database {
+  if (_database) return _database;
+
+  const adapter = new SQLiteAdapter({
+    schema,
+    dbName: 'puwer',
+    jsi: false, // disabled — JSI on iOS/Hermes returns frozen _raw objects causing "Cannot assign to read-only property" crash
+    migrations,
+    onSetUpError: (error) => {
+      console.error('[WatermelonDB] Setup error:', error);
+    },
+  });
+
+  _database = new Database({
+    adapter,
+    modelClasses: [
+      Site, Assembly, Machine, QuestionSet, Question,
+      ChecklistInstance, ChecklistResponse, RiskEvaluation,
+    ],
+  });
+
+  return _database;
+}
 
 export * from './models';

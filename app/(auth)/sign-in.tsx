@@ -28,7 +28,7 @@ export default function SignInScreen() {
           style={styles.logo}
         />
         <Text style={styles.brand}>KNOX THOMAS</Text>
-        <Text style={styles.title}>PUWER Assessments</Text>
+        <Text style={styles.title}>PUWER Assessment</Text>
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -8,11 +8,12 @@ export default class QuestionSet extends Model {
     questions: { type: 'has_many' as const, foreignKey: 'question_set_id' },
   };
 
-  @field('server_id') serverId!: number | null;
-  @field('set_name') setName!: string;
-  @field('description') description!: string;
-  @field('is_base') isBase!: boolean;
-  @readonly @date('created_at') createdAt!: Date;
+  @field('server_id') declare serverId: number | null;
+  @field('set_name') declare setName: string;
+  @field('description') declare description: string | null;
+  @field('is_base') declare isBase: boolean;
+  @field('applies_to') declare appliesTo: 'asset' | 'site' | null; // added migration 003
+  @readonly @date('created_at') declare createdAt: Date;
 
-  @children('questions') questions!: Query<Question>;
+  @children('questions') declare questions: Query<Question>;
 }

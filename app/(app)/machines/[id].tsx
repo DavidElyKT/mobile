@@ -2,64 +2,103 @@ import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert,
   Pressable, Modal, Image,
 } from 'react-native';
-import { useLocalSearchParams, useNavigation, useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
+import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { useRecord } from '@/db/hooks';
 import { useAuth } from '@/context/AuthContext';
+import { useDemoMode } from '@/context/DemoModeContext';
 import { MachinesApi } from '@/services/api';
+import { enqueuePhoto } from '@/services/photoQueue';
 import { Colors } from '@/constants/Colors';
-import PhotoPicker from '@/components/PhotoPicker';
+import PhotoPicker, { type PhotoPickerRef } from '@/components/PhotoPicker';
+import { SkeletonDetailScreen } from '@/components/SkeletonLoader';
+import DemoModeBlocked from '@/components/DemoModeBlocked';
+import { isDemoSite } from '@/utils/demoMode';
+import Machine from '@/db/models/Machine.model';
+import Assembly from '@/db/models/Assembly.model';
+import Site from '@/db/models/Site.model';
 
 export default function MachineDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const navigation = useNavigation();
   const router = useRouter();
+  const db = useDatabase();
   const { getAccessToken } = useAuth();
-  const [machine, setMachine] = useState<any>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { isDemoMode } = useDemoMode();
+
+  const machine = useRecord<Machine>(db.get<Machine>('machines'), id);
+  const assembly = useRecord<Assembly>(db.get<Assembly>('assemblies'), machine?.assemblyId);
+  const site = useRecord<Site>(db.get<Site>('sites'), assembly?.siteId);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const heroPhotoRef = useRef<PhotoPickerRef>(null);
+  const hiddenByDemoMode = !!site && isDemoMode && !isDemoSite(site);
 
-  useFocusEffect(
-    useCallback(() => { load(); }, [id]),
-  );
-
-  async function load() {
-    try {
-      const t = await getAccessToken();
-      if (!t) return;
-      const m = await MachinesApi.get(t, Number(id));
-      setMachine(m);
-      setToken(t);
-      navigation.setOptions({
-        title: m.machine_name_reference,
-        headerRight: () => (
-          <View style={{ flexDirection: 'row', gap: 4 }}>
-            <Pressable
-              style={{ padding: 8 }}
-              onPress={() => router.push({ pathname: '/(app)/machines/edit', params: { id } })}
-            >
-              <Feather name="edit-2" size={20} color="#fff" />
-            </Pressable>
-            <Pressable style={{ padding: 8 }} onPress={() => setConfirmingDelete(true)}>
-              <Feather name="trash-2" size={20} color="#fff" />
-            </Pressable>
-          </View>
-        ),
-      });
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (!machine) return;
+    if (hiddenByDemoMode) {
+      navigation.setOptions({ title: 'Demo mode', headerRight: undefined });
+      return;
     }
-  }
+    navigation.setOptions({
+      title: machine.machineNameReference,
+      headerRight: () => (
+        <View style={{ flexDirection: 'row', gap: 4 }}>
+          <Pressable
+            style={{ padding: 8 }}
+            onPress={() => router.push({ pathname: '/(app)/machines/edit', params: { id } })}
+          >
+            <Feather name="edit-2" size={20} color="#fff" />
+          </Pressable>
+          <Pressable style={{ padding: 8 }} onPress={() => setConfirmingDelete(true)}>
+            <Feather name="trash-2" size={20} color="#fff" />
+          </Pressable>
+        </View>
+      ),
+    });
+  }, [machine?.machineNameReference, hiddenByDemoMode]);
 
   async function handleDelete() {
-    if (!token) return;
+    if (!machine) return;
     setDeleting(true);
     try {
-      await MachinesApi.delete(token, Number(id));
+      const assemblyId = machine.assemblyId;
+      const serverId = machine.serverId;
+      const hasServerLink =
+        typeof serverId === 'number' &&
+        Number.isInteger(serverId) &&
+        serverId > 0;
+
+      if (!hasServerLink && machine.isSynced) {
+        console.warn('[MachineDelete] Blocked delete without server link', {
+          id: machine.id,
+          serverId: machine.serverId,
+          isSynced: machine.isSynced,
+        });
+        Alert.alert('Delete unavailable', 'Sync this sub-machine before deleting so it does not reappear.');
+        return;
+      }
+
+      if (hasServerLink) {
+        const token = await getAccessToken();
+        if (!token) {
+          Alert.alert('Delete failed', 'You appear to be offline. Please sync when online and try again.');
+          return;
+        }
+        try {
+          await MachinesApi.delete(token, serverId);
+        } catch {
+          Alert.alert('Delete failed', 'Could not delete this sub-machine on the server. Please try again.');
+          return;
+        }
+      }
+      await db.write(async () => {
+        await machine.destroyPermanently();
+      });
       setConfirmingDelete(false);
-      router.replace(`/(app)/assemblies/${machine.assembly_id}`);
+      router.replace(`/(app)/assemblies/${assemblyId}`);
     } catch (e: any) {
       setConfirmingDelete(false);
       Alert.alert('Delete failed', e.message);
@@ -68,53 +107,72 @@ export default function MachineDetailScreen() {
     }
   }
 
-  async function handlePhotoUploaded(field: 'picture_url' | 'nameplate_photo_url', url: string) {
-    if (!token) return;
+  async function handlePhotoUploaded(field: 'pictureUrl' | 'nameplatePhotoUrl', url: string) {
+    if (!machine) return;
     try {
-      await MachinesApi.update(token, Number(id), { [field]: url });
-      setMachine((prev: any) => ({ ...prev, [field]: url }));
+      await db.write(async () => {
+        await machine.update(m => {
+          m[field] = url;
+          m.isSynced = false;
+        });
+      });
+      // Queue local photos for upload on next sync
+      if (url.startsWith('file://')) {
+        const dbField = field === 'pictureUrl' ? 'picture_url' : 'nameplate_photo_url';
+        await enqueuePhoto({ localUri: url, collection: 'machines', recordId: machine.id, field: dbField });
+      }
     } catch (e: any) {
       Alert.alert('Save failed', e.message);
     }
   }
 
-  if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={Colors.primary} />;
-  if (!machine) return null;
+  if (!machine || (isDemoMode && !site)) return <SkeletonDetailScreen />;
+  if (hiddenByDemoMode) return <DemoModeBlocked />;
 
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {/* Machine photo — full width at top */}
-        {token ? (
-          <PhotoPicker
-            label="Machine Photo"
-            currentUrl={machine.picture_url ?? null}
-            token={token}
-            onUploaded={(url) => handlePhotoUploaded('picture_url', url)}
-          />
-        ) : machine.picture_url ? (
-          <Image source={{ uri: machine.picture_url }} style={styles.heroImage} resizeMode="cover" />
+        {machine.pictureUrl ? (
+          <View style={styles.heroWrap}>
+            <Image source={{ uri: machine.pictureUrl }} style={styles.heroImage} resizeMode="cover" />
+            <Pressable style={styles.heroEditBtn} onPress={() => heroPhotoRef.current?.openCamera()}>
+              <Feather name="camera" size={18} color="#fff" />
+            </Pressable>
+          </View>
         ) : null}
 
-        {/* Machine info card */}
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Feather name="cpu" size={16} color={Colors.textMuted} />
+            <Feather name="cpu" size={19} color={Colors.textMuted} />
             <Text style={styles.infoLabel}>Machine</Text>
-            <Text style={styles.infoValue}>{machine.machine_name_reference}</Text>
+            <Text style={styles.infoValue}>{machine.machineNameReference}</Text>
           </View>
+          {machine.machineCategory ? (
+            <View style={styles.infoRow}>
+              <Feather name="layers" size={19} color={Colors.textMuted} />
+              <Text style={styles.infoLabel}>Category</Text>
+              <Text style={styles.infoValue}>{machine.machineCategory}</Text>
+            </View>
+          ) : null}
+          {machine.machineUse ? (
+            <View style={styles.infoRow}>
+              <Feather name="briefcase" size={19} color={Colors.textMuted} />
+              <Text style={styles.infoLabel}>Use</Text>
+              <Text style={styles.infoValue}>{machine.machineUse}</Text>
+            </View>
+          ) : null}
           {machine.manufacturer ? (
             <View style={styles.infoRow}>
-              <Feather name="tool" size={16} color={Colors.textMuted} />
+              <Feather name="tool" size={19} color={Colors.textMuted} />
               <Text style={styles.infoLabel}>Make / Model</Text>
               <Text style={styles.infoValue}>{machine.manufacturer}{machine.model ? ` ${machine.model}` : ''}</Text>
             </View>
           ) : null}
-          {machine.serial_number ? (
+          {machine.serialNumber ? (
             <View style={styles.infoRow}>
-              <Feather name="hash" size={16} color={Colors.textMuted} />
+              <Feather name="hash" size={19} color={Colors.textMuted} />
               <Text style={styles.infoLabel}>Serial</Text>
-              <Text style={styles.infoValue}>{machine.serial_number}</Text>
+              <Text style={styles.infoValue}>{machine.serialNumber}</Text>
             </View>
           ) : null}
           {machine.description ? (
@@ -122,25 +180,29 @@ export default function MachineDetailScreen() {
           ) : null}
         </View>
 
-        {/* Nameplate photo */}
-        <Text style={styles.sectionTitle}>Nameplate</Text>
-        {token ? (
+        {/* Hidden picker — drives the hero camera button when a photo already exists */}
+        <View style={machine.pictureUrl ? { height: 0, overflow: 'hidden' } : undefined}>
+          {!machine.pictureUrl && <Text style={styles.sectionTitle}>Machine Photo</Text>}
           <PhotoPicker
-            label="Nameplate Photo"
-            currentUrl={machine.nameplate_photo_url ?? null}
-            token={token}
-            onUploaded={(url) => handlePhotoUploaded('nameplate_photo_url', url)}
+            ref={heroPhotoRef}
+            label="Machine Photo"
+            currentUrl={machine.pictureUrl ?? null}
+            onUploaded={(url) => handlePhotoUploaded('pictureUrl', url)}
           />
-        ) : machine.nameplate_photo_url ? (
-          <Image source={{ uri: machine.nameplate_photo_url }} style={styles.nameplateImage} resizeMode="cover" />
-        ) : null}
+        </View>
+
+        <Text style={styles.sectionTitle}>Nameplate</Text>
+        <PhotoPicker
+          label="Nameplate Photo"
+          currentUrl={machine.nameplatePhotoUrl ?? null}
+          onUploaded={(url) => handlePhotoUploaded('nameplatePhotoUrl', url)}
+        />
       </ScrollView>
 
-      {/* Delete confirmation modal */}
       <Modal visible={confirmingDelete} transparent animationType="fade" onRequestClose={() => setConfirmingDelete(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Feather name="alert-triangle" size={28} color={Colors.danger} style={{ marginBottom: 12 }} />
+            <Feather name="alert-triangle" size={34} color={Colors.danger} style={{ marginBottom: 14 }} />
             <Text style={styles.modalTitle}>Delete Sub-machine?</Text>
             <Text style={styles.modalBody}>
               This will permanently delete this sub-machine and all associated checklists and risk evaluations. This cannot be undone.
@@ -172,95 +234,64 @@ export default function MachineDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  content: { padding: 16, paddingBottom: 40, gap: 16 },
-  heroImage: {
-    width: '100%',
-    height: 220,
-    borderRadius: 12,
+  content: { padding: 19, paddingBottom: 48, gap: 19 },
+  heroWrap: {
+    marginHorizontal: -19,
+    marginTop: -19,
+    marginBottom: 0,
   },
-  nameplateImage: {
-    width: '100%',
-    height: 160,
-    borderRadius: 12,
+  heroImage: { width: '100%', height: 264 },
+  heroEditBtn: {
+    position: 'absolute', bottom: 12, right: 12,
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center', justifyContent: 'center',
   },
 
   infoCard: {
     backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 19,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 2,
   },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 10,
-  },
-  infoLabel: { fontSize: 13, color: Colors.textMuted, width: 90 },
-  infoValue: { flex: 1, fontSize: 13, fontWeight: '600', color: Colors.text },
-  desc: { fontSize: 14, color: Colors.textMuted, marginTop: 8, lineHeight: 20 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12 },
+  infoLabel: { fontSize: 16, color: Colors.textMuted, width: 108 },
+  infoValue: { flex: 1, fontSize: 16, fontWeight: '600', color: Colors.text },
+  desc: { fontSize: 17, color: Colors.textMuted, marginTop: 10, lineHeight: 24 },
 
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '700',
     color: Colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
-  photoRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-
-  // Delete modal
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 24,
+    padding: 29,
   },
   modalCard: {
     backgroundColor: Colors.card,
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: 19,
+    padding: 29,
     width: '100%',
     alignItems: 'center',
   },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  modalBody: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 12,
-    width: '100%',
-  },
-  modalBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  modalTitle: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 10, textAlign: 'center' },
+  modalBody: { fontSize: 17, color: Colors.textMuted, textAlign: 'center', lineHeight: 24, marginBottom: 29 },
+  modalActions: { flexDirection: 'row', gap: 14, width: '100%' },
+  modalBtn: { flex: 1, height: 58, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   modalBtnCancel: { backgroundColor: Colors.border },
   modalBtnDelete: { backgroundColor: Colors.danger },
-  modalBtnCancelText: { fontSize: 15, fontWeight: '600', color: Colors.text },
-  modalBtnDeleteText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  modalBtnCancelText: { fontSize: 18, fontWeight: '600', color: Colors.text },
+  modalBtnDeleteText: { fontSize: 18, fontWeight: '700', color: '#fff' },
 });

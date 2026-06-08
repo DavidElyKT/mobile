@@ -10,6 +10,7 @@ import {
   parseUserProfile,
   signIn as authSignIn,
 } from '@/services/auth';
+import { UsersApi } from '@/services/api';
 
 interface AuthContextValue {
   tokens: AuthTokens | null;
@@ -23,12 +24,30 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function hasAuthenticatedSession(tokens: AuthTokens | null): boolean {
+  if (!tokens) return false;
+  if (!isTokenExpired(tokens)) return true;
+
+  // Keep the session alive while we can still silently refresh. This avoids
+  // route resets when the app foregrounds after camera/library flows.
+  return !!tokens.refreshToken;
+}
+
+function mergeUserProfile(tokenProfile: UserProfile | null, dbUser: any): UserProfile {
+  return {
+    oid: tokenProfile?.oid ?? dbUser?.entra_oid ?? dbUser?.entraOid ?? '',
+    name: dbUser?.display_name ?? dbUser?.displayName ?? tokenProfile?.name ?? dbUser?.email ?? '',
+    email: dbUser?.email ?? tokenProfile?.email ?? '',
+    role: dbUser?.role ?? tokenProfile?.role ?? '',
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tokens, setTokens] = useState<AuthTokens | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'mobile', path: 'auth' });
+  const redirectUri = AuthSession.makeRedirectUri({ scheme: 'puwerapp', path: 'auth' });
 
   // Load persisted tokens on mount
   useEffect(() => {
@@ -56,8 +75,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       active = refreshed;
     }
     setTokens(active);
+    const tokenProfile = active.idToken ? parseUserProfile(active.idToken) : null;
     if (active.idToken) {
-      setUser(parseUserProfile(active.idToken));
+      setUser(tokenProfile);
+    }
+    try {
+      const dbUser = await UsersApi.me(active.accessToken);
+      setUser(mergeUserProfile(tokenProfile, dbUser));
+    } catch {
+      if (tokenProfile) setUser(tokenProfile);
     }
   }
 
@@ -96,7 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tokens,
         user,
         isLoading,
-        isAuthenticated: !!tokens && !isTokenExpired(tokens),
+        isAuthenticated: hasAuthenticatedSession(tokens),
         signIn,
         signOut,
         getAccessToken,

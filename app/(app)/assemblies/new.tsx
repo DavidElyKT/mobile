@@ -5,77 +5,110 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
-import { useAuth } from '@/context/AuthContext';
-import { AssembliesApi } from '@/services/api';
+import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { useDemoMode } from '@/context/DemoModeContext';
+import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
+import { enqueuePhoto } from '@/services/photoQueue';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import DemoModeBlocked from '@/components/DemoModeBlocked';
+import { isDemoSite } from '@/utils/demoMode';
+import Assembly from '@/db/models/Assembly.model';
+import Site from '@/db/models/Site.model';
 
 type AssetType = 'standalone' | 'assembly';
 
 export default function NewAssetScreen() {
   const router = useRouter();
   const { site_id } = useLocalSearchParams<{ site_id: string }>();
-  const { getAccessToken } = useAuth();
-  const [token, setToken] = useState<string | null>(null);
+  const db = useDatabase();
+  const { isDemoMode } = useDemoMode();
+  const [blockedByDemoMode, setBlockedByDemoMode] = useState(false);
+  const [pendingAnnotation, setPendingAnnotation] = useState<{ uri: string; field: 'pictureUrl' | 'nameplateUrl' } | null>(null);
 
-  // Core fields
   const [assetName, setAssetName] = useState('');
   const [description, setDescription] = useState('');
   const [isInUse, setIsInUse] = useState(true);
   const [assetType, setAssetType] = useState<AssetType>('standalone');
-
-  // Standalone-only fields
   const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
-
-  // Photos
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [nameplateUrl, setNameplateUrl] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAssembly, setSavedAssembly] = useState<any>(null);
+  const [savedAssembly, setSavedAssembly] = useState<Assembly | null>(null);
 
   useEffect(() => {
-    getAccessToken().then((t) => { if (t) setToken(t); });
-  }, []);
+    if (isDemoMode && site_id) {
+      db.get<Site>('sites').find(site_id)
+        .then(site => setBlockedByDemoMode(!isDemoSite(site)))
+        .catch(() => setBlockedByDemoMode(true));
+    } else {
+      setBlockedByDemoMode(false);
+    }
+  }, [db, isDemoMode, site_id]);
+
+  function handleAnnotationDone(uri: string) {
+    const pending = pendingAnnotation;
+    if (!pending) return;
+    const field = pending.field;
+    setPendingAnnotation(null);
+    if (field === 'pictureUrl') setPictureUrl(uri);
+    else setNameplateUrl(uri);
+  }
+
+  function handleAnnotationCancel() {
+    setPendingAnnotation(null);
+  }
 
   async function handleSave() {
     if (!assetName.trim()) { setError('Asset name is required.'); return; }
     setSaving(true);
     try {
-      const t = token ?? await getAccessToken();
-      if (!t) return;
-      const created = await AssembliesApi.create(t, {
-        site_id: Number(site_id),
-        assembly_name: assetName.trim(),
-        description: description.trim() || undefined,
-        is_in_use: isInUse,
-        asset_type: assetType,
-        ...(assetType === 'standalone' && {
-          manufacturer: manufacturer.trim() || undefined,
-          model: model.trim() || undefined,
-          serial_number: serialNumber.trim() || undefined,
-        }),
-        picture_url: pictureUrl || undefined,
-        nameplate_photo_url: nameplateUrl || undefined,
+      // Write locally immediately
+      const newAssembly = await db.write(async () => {
+        return await db.get<Assembly>('assemblies').create(a => {
+          a.siteId = site_id;
+          a.assemblyName = assetName.trim();
+          a.description = description.trim();
+          a.isInUse = isInUse;
+          a.assetType = assetType;
+          a.manufacturer = assetType === 'standalone' ? manufacturer.trim() : '';
+          a.model = assetType === 'standalone' ? model.trim() : '';
+          a.serialNumber = assetType === 'standalone' ? serialNumber.trim() : '';
+          a.pictureUrl = pictureUrl;
+          a.nameplatePhotoUrl = assetType === 'standalone' ? nameplateUrl : null;
+          a.isSynced = false;
+        });
       });
+
+      // Enqueue any locally-stored photos for upload on next sync
+      if (pictureUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: pictureUrl, collection: 'assemblies', recordId: newAssembly.id, field: 'picture_url' });
+      }
+      if (assetType === 'standalone' && nameplateUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: nameplateUrl, collection: 'assemblies', recordId: newAssembly.id, field: 'nameplate_photo_url' });
+      }
+
       if (assetType === 'assembly') {
-        setSavedAssembly(created);
+        setSavedAssembly(newAssembly);
       } else {
         router.back();
       }
-    } catch (e: any) { setError(e.message); } finally { setSaving(false); }
+    } catch (e: any) { setError(e.message); setSaving(false); }
   }
+
+  if (blockedByDemoMode) return <DemoModeBlocked />;
 
   if (savedAssembly) {
     return (
       <View style={styles.promptContainer}>
         <View style={styles.promptIcon}>
-          <Feather name="check-circle" size={48} color={Colors.success} />
+          <Feather name="check-circle" size={58} color={Colors.success} />
         </View>
-        <Text style={styles.promptTitle}>{savedAssembly.assembly_name}</Text>
+        <Text style={styles.promptTitle}>{savedAssembly.assemblyName}</Text>
         <Text style={styles.promptBody}>
           Would you like to add sub-machines to this assembly now?
         </Text>
@@ -84,15 +117,15 @@ export default function NewAssetScreen() {
             style={[styles.button, styles.buttonSecondary]}
             onPress={() => router.push({
               pathname: '/(app)/machines/new',
-              params: { assembly_id: savedAssembly.assembly_id },
+              params: { assembly_id: savedAssembly.id },
             })}
           >
-            <Feather name="plus" size={16} color="#fff" />
+            <Feather name="plus" size={19} color="#fff" />
             <Text style={styles.buttonText}>Add Sub-machine</Text>
           </Pressable>
           <Pressable
             style={[styles.button, styles.buttonNeutral]}
-            onPress={() => router.replace(`/(app)/assemblies/${savedAssembly.assembly_id}`)}
+            onPress={() => router.replace(`/(app)/assemblies/${savedAssembly.id}`)}
           >
             <Text style={[styles.buttonText, { color: Colors.text }]}>Done</Text>
           </Pressable>
@@ -102,10 +135,10 @@ export default function NewAssetScreen() {
   }
 
   return (
+    <>
     <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {/* Asset Name */}
       <Text style={styles.label}>Asset Name *</Text>
       <TextInput
         style={styles.input}
@@ -115,7 +148,6 @@ export default function NewAssetScreen() {
         placeholderTextColor={Colors.textLight}
       />
 
-      {/* Description */}
       <Text style={styles.label}>Description</Text>
       <TextInput
         style={[styles.input, styles.multiline]}
@@ -127,7 +159,6 @@ export default function NewAssetScreen() {
         numberOfLines={3}
       />
 
-      {/* In use */}
       <View style={styles.switchRow}>
         <View style={styles.switchInfo}>
           <Text style={styles.switchLabel}>Asset currently in use</Text>
@@ -141,7 +172,6 @@ export default function NewAssetScreen() {
         />
       </View>
 
-      {/* Asset type */}
       <Text style={styles.label}>Asset Type *</Text>
       <View style={styles.typeRow}>
         <Pressable
@@ -149,7 +179,7 @@ export default function NewAssetScreen() {
           onPress={() => setAssetType('standalone')}
         >
           <View style={[styles.typeIconWrap, assetType === 'standalone' && styles.typeIconWrapActive]}>
-            <Feather name="cpu" size={22} color={assetType === 'standalone' ? '#fff' : Colors.textMuted} />
+            <Feather name="cpu" size={26} color={assetType === 'standalone' ? '#fff' : Colors.textMuted} />
           </View>
           <Text style={[styles.typeLabel, assetType === 'standalone' && styles.typeLabelActive]}>
             Standalone{'\n'}Machine
@@ -162,7 +192,7 @@ export default function NewAssetScreen() {
           onPress={() => setAssetType('assembly')}
         >
           <View style={[styles.typeIconWrap, assetType === 'assembly' && styles.typeIconWrapActive]}>
-            <Feather name="grid" size={22} color={assetType === 'assembly' ? '#fff' : Colors.textMuted} />
+            <Feather name="grid" size={26} color={assetType === 'assembly' ? '#fff' : Colors.textMuted} />
           </View>
           <Text style={[styles.typeLabel, assetType === 'assembly' && styles.typeLabelActive]}>
             Assembly of{'\n'}Machines
@@ -171,11 +201,10 @@ export default function NewAssetScreen() {
         </Pressable>
       </View>
 
-      {/* Standalone-only: nameplate fields */}
       {assetType === 'standalone' && (
         <View style={styles.section}>
           <View style={styles.sectionHeadRow}>
-            <Feather name="tag" size={13} color={Colors.primary} />
+            <Feather name="tag" size={16} color={Colors.primary} />
             <Text style={styles.sectionHead}>Nameplate Details</Text>
           </View>
 
@@ -208,136 +237,137 @@ export default function NewAssetScreen() {
         </View>
       )}
 
-      {/* Photos */}
       <Text style={styles.label}>Photos</Text>
-      {token ? (
-        <View style={styles.photoRow}>
+      <View style={styles.photoRow}>
+        <PhotoPicker
+          label="Asset Photo"
+          currentUrl={pictureUrl}
+          onUploaded={setPictureUrl}
+          onAnnotationRequest={(uri) => setPendingAnnotation({ uri, field: 'pictureUrl' })}
+        />
+        {assetType === 'standalone' && (
           <PhotoPicker
-            label="Asset Photo"
-            currentUrl={pictureUrl}
-            token={token}
-            onUploaded={setPictureUrl}
+            label="Nameplate"
+            currentUrl={nameplateUrl}
+            onUploaded={setNameplateUrl}
+            onAnnotationRequest={(uri) => setPendingAnnotation({ uri, field: 'nameplateUrl' })}
           />
-          {assetType === 'standalone' && (
-            <PhotoPicker
-              label="Nameplate"
-              currentUrl={nameplateUrl}
-              token={token}
-              onUploaded={setNameplateUrl}
-            />
-          )}
-        </View>
-      ) : (
-        <ActivityIndicator color={Colors.primary} style={{ marginVertical: 12 }} />
-      )}
+        )}
+      </View>
 
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
         {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Asset</Text>}
       </Pressable>
     </ScrollView>
+    <PhotoAnnotationModal
+      visible={!!pendingAnnotation}
+      uri={pendingAnnotation?.uri ?? null}
+      onDone={handleAnnotationDone}
+      onCancel={handleAnnotationCancel}
+    />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  content: { padding: 16, paddingBottom: 40 },
-  label: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 6, marginTop: 20 },
+  content: { padding: 19, paddingBottom: 48 },
+  label: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 7, marginTop: 24 },
 
   input: {
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 18,
     color: Colors.text,
   },
-  multiline: { height: 88, textAlignVertical: 'top' },
+  multiline: { height: 106, textAlignVertical: 'top' },
 
   switchRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 20,
+    borderRadius: 14,
+    padding: 19,
+    marginTop: 24,
     borderWidth: 1,
     borderColor: Colors.border,
-    gap: 12,
+    gap: 14,
   },
   switchInfo: { flex: 1 },
-  switchLabel: { fontSize: 14, fontWeight: '600', color: Colors.text, marginBottom: 2 },
-  switchSub: { fontSize: 12, color: Colors.textMuted },
+  switchLabel: { fontSize: 17, fontWeight: '600', color: Colors.text, marginBottom: 2 },
+  switchSub: { fontSize: 14, color: Colors.textMuted },
 
-  typeRow: { flexDirection: 'row', gap: 12 },
+  typeRow: { flexDirection: 'row', gap: 14 },
   typeCard: {
     flex: 1,
     backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 19,
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
     borderWidth: 2,
     borderColor: Colors.border,
   },
   typeCardActive: { borderColor: Colors.primary, backgroundColor: Colors.primary + '08' },
   typeIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 53,
+    height: 53,
+    borderRadius: 26,
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
   typeIconWrapActive: { backgroundColor: Colors.primary },
-  typeLabel: { fontSize: 13, fontWeight: '700', color: Colors.textMuted, textAlign: 'center' },
+  typeLabel: { fontSize: 16, fontWeight: '700', color: Colors.textMuted, textAlign: 'center' },
   typeLabelActive: { color: Colors.primary },
-  typeSub: { fontSize: 11, color: Colors.textLight, textAlign: 'center', lineHeight: 16 },
+  typeSub: { fontSize: 13, color: Colors.textLight, textAlign: 'center', lineHeight: 19 },
 
   section: {
-    marginTop: 8,
+    marginTop: 10,
     backgroundColor: Colors.card,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    padding: 19,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  sectionHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
-  sectionHead: { fontSize: 12, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.6 },
+  sectionHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 5 },
+  sectionHead: { fontSize: 14, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.6 },
 
-  photoRow: { flexDirection: 'row', gap: 12 },
+  photoRow: { flexDirection: 'row', gap: 14 },
   button: {
     backgroundColor: Colors.primary,
-    borderRadius: 8,
-    height: 48,
+    borderRadius: 10,
+    height: 58,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 32,
+    marginTop: 38,
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   buttonSecondary: { backgroundColor: Colors.orange },
   buttonNeutral: { backgroundColor: Colors.border },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  error: { color: Colors.danger, marginBottom: 8, fontSize: 14 },
+  buttonText: { color: '#fff', fontWeight: '600', fontSize: 19 },
+  error: { color: Colors.danger, marginBottom: 10, fontSize: 17 },
 
-  // Post-save prompt
   promptContainer: {
     flex: 1,
     backgroundColor: Colors.background,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
+    padding: 38,
   },
-  promptIcon: { marginBottom: 20 },
-  promptTitle: { fontSize: 22, fontWeight: '700', color: Colors.text, marginBottom: 12, textAlign: 'center' },
+  promptIcon: { marginBottom: 24 },
+  promptTitle: { fontSize: 26, fontWeight: '700', color: Colors.text, marginBottom: 14, textAlign: 'center' },
   promptBody: {
-    fontSize: 15,
+    fontSize: 18,
     color: Colors.textMuted,
     textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 36,
+    lineHeight: 26,
+    marginBottom: 43,
   },
-  promptActions: { width: '100%', gap: 12 },
+  promptActions: { width: '100%', gap: 14 },
 });

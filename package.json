@@ -4,12 +4,14 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
     "web": "expo start --web",
+    "eas:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/eas-preflight.ps1",
     "postinstall": "node scripts/patchImageUtils.js"
   },
   "dependencies": {
+    "@nozbe/watermelondb": "^0.28.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^7.1.28",
     "expo": "~55.0.5",
@@ -25,6 +27,7 @@
     "expo-splash-screen": "~55.0.10",
     "expo-status-bar": "~55.0.4",
     "expo-symbols": "~55.0.5",
+    "expo-updates": "~55.0.15",
     "expo-web-browser": "~55.0.9",
     "react": "19.2.0",
     "react-dom": "19.2.0",
@@ -39,6 +42,8 @@
     "react-native-worklets": "0.7.2"
   },
   "devDependencies": {
+    "@babel/plugin-proposal-class-properties": "^7.18.6",
+    "@babel/plugin-proposal-decorators": "^7.29.0",
     "@types/react": "~19.2.2",
     "typescript": "~5.9.2"
   },

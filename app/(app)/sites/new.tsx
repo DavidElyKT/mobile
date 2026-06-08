@@ -1,13 +1,19 @@
 import { View, Text, TextInput, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { useDatabase } from '@nozbe/watermelondb/hooks';
 import { useAuth } from '@/context/AuthContext';
-import { SitesApi, UsersApi } from '@/services/api';
+import { useDemoMode } from '@/context/DemoModeContext';
+import { getCachedUserId } from '@/services/sync';
 import { Colors } from '@/constants/Colors';
+import DemoModeBlocked from '@/components/DemoModeBlocked';
+import Site from '@/db/models/Site.model';
 
 export default function NewSiteScreen() {
   const router = useRouter();
-  const { getAccessToken } = useAuth();
+  const db = useDatabase();
+  const { user } = useAuth();
+  const { isDemoMode } = useDemoMode();
   const [customer, setCustomer] = useState('');
   const [projectNumber, setProjectNumber] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
@@ -23,24 +29,31 @@ export default function NewSiteScreen() {
     setSaving(true);
     setError(null);
     try {
-      const token = await getAccessToken();
-      if (!token) return;
-      // Get current user to set as assessor
-      const me = await UsersApi.me(token);
-      await SitesApi.create(token, {
-        customer: customer.trim(),
-        project_number: projectNumber.trim(),
-        project_description: projectDescription.trim() || undefined,
-        assessor_id: me.user_id,
-        date,
+      const assessorId = (await getCachedUserId()) ?? 0;
+      const assessorName = user?.name ?? '';
+
+      // Write locally immediately — appears in the list straight away
+      await db.write(async () => {
+        await db.get<Site>('sites').create(s => {
+          s.customer = customer.trim();
+          s.projectNumber = projectNumber.trim();
+          s.projectDescription = projectDescription.trim();
+          s.assessorId = assessorId;
+          s.assessorName = assessorName;
+          s.date = date;
+          s.status = 'Active';
+          s.isSynced = false;
+        });
       });
+
       router.back();
     } catch (e: any) {
       setError(e.message);
-    } finally {
       setSaving(false);
     }
   }
+
+  if (isDemoMode) return <DemoModeBlocked />;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -97,27 +110,27 @@ export default function NewSiteScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.background },
-  content: { padding: 16 },
-  label: { fontSize: 13, fontWeight: '600', color: Colors.text, marginBottom: 6, marginTop: 20 },
+  content: { padding: 19 },
+  label: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 7, marginTop: 24 },
   input: {
     backgroundColor: Colors.card,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 15,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 18,
     color: Colors.text,
   },
-  multiline: { height: 88, textAlignVertical: 'top' },
+  multiline: { height: 106, textAlignVertical: 'top' },
   button: {
     backgroundColor: Colors.primary,
-    borderRadius: 8,
-    height: 48,
+    borderRadius: 10,
+    height: 58,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 32,
+    marginTop: 38,
   },
   buttonDisabled: { opacity: 0.6 },
-  buttonText: { color: '#fff', fontWeight: '600', fontSize: 16 },
-  error: { color: Colors.danger, marginBottom: 8, fontSize: 14 },
+  buttonText: { color: '#fff', fontWeight: '600', fontSize: 19 },
+  error: { color: Colors.danger, marginBottom: 10, fontSize: 17 },
 });

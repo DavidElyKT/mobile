@@ -10,14 +10,21 @@ export default class Assembly extends Model {
     machines: { type: 'has_many' as const, foreignKey: 'assembly_id' },
   };
 
-  @field('server_id') serverId!: number | null;
-  @field('site_id') siteId!: string;
-  @field('assembly_name') assemblyName!: string;
-  @field('description') description!: string;
-  @field('is_synced') isSynced!: boolean;
-  @readonly @date('created_at') createdAt!: Date;
-  @date('updated_at') updatedAt!: Date;
+  @field('server_id') declare serverId: number | null;
+  @field('site_id') declare siteId: string;
+  @field('assembly_name') declare assemblyName: string;
+  @field('description') declare description: string;
+  @field('is_in_use') declare isInUse: boolean;
+  @field('asset_type') declare assetType: string; // 'standalone' | 'assembly'
+  @field('manufacturer') declare manufacturer: string;
+  @field('model') declare model: string;
+  @field('serial_number') declare serialNumber: string;
+  @field('picture_url') declare pictureUrl: string | null;
+  @field('nameplate_photo_url') declare nameplatePhotoUrl: string | null;
+  @field('is_synced') declare isSynced: boolean;
+  @readonly @date('created_at') declare createdAt: Date;
+  @date('updated_at') declare updatedAt: Date;
 
-  @relation('sites', 'site_id') site!: Site;
-  @children('machines') machines!: Query<Machine>;
+  @relation('sites', 'site_id') declare site: Site;
+  @children('machines') declare machines: Query<Machine>;
 }

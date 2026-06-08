@@ -8,17 +8,18 @@ export default class Site extends Model {
     assemblies: { type: 'has_many' as const, foreignKey: 'site_id' },
   };
 
-  @field('server_id') serverId!: number | null;
-  @field('customer') customer!: string;
-  @field('project_number') projectNumber!: string;
-  @field('project_description') projectDescription!: string;
-  @field('assessor_id') assessorId!: number;
-  @field('assessor_name') assessorName!: string;
-  @field('date') date!: string;
-  @field('created_by') createdBy!: number;
-  @field('is_synced') isSynced!: boolean;
-  @readonly @date('created_at') createdAt!: Date;
-  @date('updated_at') updatedAt!: Date;
+  @field('server_id') declare serverId: number | null;
+  @field('customer') declare customer: string;
+  @field('project_number') declare projectNumber: string;
+  @field('project_description') declare projectDescription: string;
+  @field('assessor_id') declare assessorId: number;
+  @field('assessor_name') declare assessorName: string;
+  @field('date') declare date: string;
+  @field('status') declare status: string; // 'Active' | 'Completed'
+  @field('created_by') declare createdBy: number;
+  @field('is_synced') declare isSynced: boolean;
+  @readonly @date('created_at') declare createdAt: Date;
+  @date('updated_at') declare updatedAt: Date;
 
-  @children('assemblies') assemblies!: Query<Assembly>;
+  @children('assemblies') declare assemblies: Query<Assembly>;
 }

@@ -1,3 +1,6 @@
+// Scale factor for 20% larger UI elements (excluding header bar)
+export const s = (n: number) => Math.round(n * 1.2);
+
 // Knox Thomas brand palette
 export const Colors = {
   primary: '#1F4FA3',
