@@ -1,13 +1,17 @@
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, RefreshControl, Modal, TextInput } from 'react-native';
+import { View, Text, Image, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, RefreshControl, Modal, TextInput } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
 import { Q } from '@nozbe/watermelondb';
 import { useRecord, useQuery } from '@/db/hooks';
 import { useAuth } from '@/context/AuthContext';
 import { useDemoMode } from '@/context/DemoModeContext';
-import { SitesApi } from '@/services/api';
+import { useAdminReview } from '@/context/AdminReviewContext';
+import { SitesApi, FloorPlansApi } from '@/services/api';
+import { enqueuePhoto } from '@/services/photoQueue';
 import { useSync } from '@/context/SyncContext';
 import { Colors } from '@/constants/Colors';
 import { isDemoSite } from '@/utils/demoMode';
@@ -18,6 +22,8 @@ import Site from '@/db/models/Site.model';
 import Assembly from '@/db/models/Assembly.model';
 import ChecklistInstance from '@/db/models/ChecklistInstance.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
+import FloorPlan from '@/db/models/FloorPlan.model';
+import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 
 function AssemblyCard({ asm, onPress }: { asm: Assembly; onPress: () => void }) {
   const db = useDatabase();
@@ -74,14 +80,22 @@ export default function SiteDetailScreen() {
       Q.where('assembly_id', null),
     ),
   );
+  const floorPlans = useQuery<FloorPlan>(
+    db.get<FloorPlan>('floor_plans').query(Q.where('site_id', id ?? '')),
+  );
 
-  const { triggerSync, isSyncing } = useSync();
+  const { triggerSync } = useSync();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const isAdmin = user?.role === 'Administrator';
+  const { enterReviewMode } = useAdminReview();
   const [toggling, setToggling] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
   const [checklistsCollapsed, setChecklistsCollapsed] = useState(false);
   const [assembliesCollapsed, setAssembliesCollapsed] = useState(false);
   const [riskEvalsCollapsed, setRiskEvalsCollapsed] = useState(false);
+  const [floorPlansCollapsed, setFloorPlansCollapsed] = useState(false);
+  const [addingFloorPlan, setAddingFloorPlan] = useState(false);
+  const [deletingFloorPlanId, setDeletingFloorPlanId] = useState<string | null>(null);
   const [assetSearch, setAssetSearch] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -98,12 +112,27 @@ export default function SiteDetailScreen() {
       title: site.customer,
       headerRight: () =>
         isAdmin ? (
-          <Pressable style={{ padding: 8 }} onPress={() => setConfirmingDelete(true)}>
-            <Feather name="trash-2" size={20} color="#fff" />
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 4 }}>
+            <Pressable
+              style={{ padding: 8 }}
+              onPress={() => {
+                if (!site.serverId) {
+                  Alert.alert('Sync required', 'Sync this project before entering review mode.');
+                  return;
+                }
+                enterReviewMode(id);
+                router.push({ pathname: '/(app)/admin-review/[siteId]', params: { siteId: id } });
+              }}
+            >
+              <Feather name="shield" size={20} color="#fff" />
+            </Pressable>
+            <Pressable style={{ padding: 8 }} onPress={() => setConfirmingDelete(true)}>
+              <Feather name="trash-2" size={20} color="#fff" />
+            </Pressable>
+          </View>
         ) : null,
     });
-  }, [site?.customer, isAdmin, hiddenByDemoMode]);
+  }, [site?.customer, site?.serverId, isAdmin, hiddenByDemoMode]);
 
   async function toggleStatus() {
     if (!site || toggling) return;
@@ -170,6 +199,173 @@ export default function SiteDetailScreen() {
     }
   }
 
+  async function pickAndSaveImage(source: 'camera' | 'library'): Promise<string | null> {
+    if (source === 'camera') {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Camera access is needed to take a photo.');
+        return null;
+      }
+      const result = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', quality: 0.85 });
+      if (result.canceled || !result.assets[0]) return null;
+      const dir = FileSystem.documentDirectory + 'pending_photos/';
+      const dirInfo = await FileSystem.getInfoAsync(dir);
+      if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const dest = dir + `photo_${Date.now()}.jpg`;
+      await FileSystem.copyAsync({ from: result.assets[0].uri, to: dest });
+      return dest;
+    } else {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Photo library access is needed.');
+        return null;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', quality: 0.85 });
+      if (result.canceled || !result.assets[0]) return null;
+      const dir = FileSystem.documentDirectory + 'pending_photos/';
+      const dirInfo = await FileSystem.getInfoAsync(dir);
+      if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const dest = dir + `photo_${Date.now()}.jpg`;
+      await FileSystem.copyAsync({ from: result.assets[0].uri, to: dest });
+      return dest;
+    }
+  }
+
+  function handleAddFloorPlan() {
+    Alert.alert('Add Floor Plan', 'Choose source', [
+      {
+        text: 'Camera',
+        onPress: () => doAddFloorPlan('camera'),
+      },
+      {
+        text: 'Photo Library',
+        onPress: () => doAddFloorPlan('library'),
+      },
+      {
+        text: 'PDF from Files',
+        onPress: () => doAddFloorPlanFromPdf(),
+      },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  async function doAddFloorPlan(source: 'camera' | 'library') {
+    setAddingFloorPlan(true);
+    try {
+      const localUri = await pickAndSaveImage(source);
+      if (!localUri) return;
+
+      await _createFloorPlanRecord(localUri);
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setAddingFloorPlan(false);
+    }
+  }
+
+  async function doAddFloorPlanFromPdf() {
+    setAddingFloorPlan(true);
+    try {
+      let DocumentPicker: typeof import('expo-document-picker');
+      try {
+        DocumentPicker = require('expo-document-picker');
+      } catch {
+        Alert.alert('Not available', 'PDF upload requires a new app build. Please rebuild and reinstall the app.');
+        return;
+      }
+      const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: false });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const picked = result.assets[0];
+      const dir = FileSystem.documentDirectory + 'pending_photos/';
+      const dirInfo = await FileSystem.getInfoAsync(dir);
+      if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+      const dest = dir + `fp_${Date.now()}.pdf`;
+      await FileSystem.copyAsync({ from: picked.uri, to: dest });
+
+      await _createFloorPlanRecord(dest);
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setAddingFloorPlan(false);
+    }
+  }
+
+  async function _createFloorPlanRecord(localUri: string) {
+    const name = `Floor Plan ${floorPlans.length + 1}`;
+    const sortOrder = floorPlans.length;
+
+    const newPlan = await db.write(async () => {
+      return await db.get<FloorPlan>('floor_plans').create(fp => {
+        fp.siteId = id;
+        fp.name = name;
+        fp.imageUrl = localUri;
+        fp.sortOrder = sortOrder;
+        fp.isSynced = false;
+      });
+    });
+
+    await enqueuePhoto({
+      localUri,
+      collection: 'floor_plans',
+      recordId: newPlan.id,
+      field: 'image_url',
+    });
+
+    router.push(`/(app)/floor-plans/${newPlan.id}`);
+  }
+
+  function handleDeleteFloorPlan(plan: FloorPlan) {
+    Alert.alert(
+      `Delete "${plan.name}"?`,
+      'All location markers on this floor plan will also be removed. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive',
+          onPress: async () => {
+            setDeletingFloorPlanId(plan.id);
+            try {
+              const hasServerLink =
+                typeof plan.serverId === 'number' &&
+                Number.isInteger(plan.serverId) &&
+                plan.serverId > 0;
+
+              if (hasServerLink) {
+                const token = await getAccessToken();
+                if (!token) {
+                  Alert.alert('Delete failed', 'You appear to be offline. Sync when online and try again.');
+                  return;
+                }
+                await FloorPlansApi.delete(token, plan.serverId!);
+              }
+
+              await db.write(async () => {
+                const markers = await db.get<FloorPlanMarker>('floor_plan_markers')
+                  .query(Q.where('floor_plan_id', plan.id))
+                  .fetch();
+                for (const m of markers) await m.destroyPermanently();
+
+                const linkedEvals = await db.get<RiskEvaluation>('risk_evaluations')
+                  .query(Q.where('floor_plan_id', plan.id))
+                  .fetch();
+                for (const ev of linkedEvals) {
+                  await ev.update(e => { e.floorPlanId = null; });
+                }
+
+                await plan.destroyPermanently();
+              });
+            } catch (e: any) {
+              Alert.alert('Delete failed', e.message);
+            } finally {
+              setDeletingFloorPlanId(null);
+            }
+          },
+        },
+      ],
+    );
+  }
+
   if (!site) return <SkeletonDetailScreen />;
   if (hiddenByDemoMode) return <DemoModeBlocked />;
 
@@ -179,7 +375,12 @@ export default function SiteDetailScreen() {
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={isSyncing} onRefresh={triggerSync} tintColor="#fff" colors={[Colors.primary]} />
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={async () => { setIsRefreshing(true); try { await triggerSync(); } finally { setIsRefreshing(false); } }}
+            tintColor="#fff"
+            colors={[Colors.primary]}
+          />
         }
       >
         <View style={[styles.banner, site.status === 'Completed' && styles.bannerCompleted]}>
@@ -218,6 +419,65 @@ export default function SiteDetailScreen() {
             )}
           </Pressable>
         </View>
+
+        {/* Floor Plans */}
+        <Pressable style={styles.sectionHeader} onPress={() => setFloorPlansCollapsed(v => !v)}>
+          <Text style={styles.sectionTitle}>Floor Plans</Text>
+          <Feather name={floorPlansCollapsed ? 'chevron-down' : 'chevron-up'} size={18} color={Colors.textMuted} />
+        </Pressable>
+        {!floorPlansCollapsed && (
+          <>
+            {[...floorPlans]
+              .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+              .map(fp => (
+                <Pressable
+                  key={fp.id}
+                  style={styles.card}
+                  onPress={() => router.push(`/(app)/floor-plans/${fp.id}`)}
+                >
+                  {fp.imageUrl ? (
+                    <Image source={{ uri: fp.imageUrl }} style={styles.floorPlanThumb} />
+                  ) : (
+                    <View style={styles.cardIcon}>
+                      <Feather name="map" size={24} color={Colors.primary} />
+                    </View>
+                  )}
+                  <View style={styles.cardBody}>
+                    <Text style={styles.cardTitle}>{fp.name}</Text>
+                    <Text style={styles.cardSub}>Tap to mark locations</Text>
+                  </View>
+                  {isAdmin && (
+                    deletingFloorPlanId === fp.id ? (
+                      <ActivityIndicator size="small" color={Colors.danger} style={{ marginRight: 10 }} />
+                    ) : (
+                      <Pressable
+                        style={styles.floorPlanDeleteBtn}
+                        onPress={() => handleDeleteFloorPlan(fp)}
+                        hitSlop={8}
+                      >
+                        <Feather name="trash-2" size={18} color={Colors.danger} />
+                      </Pressable>
+                    )
+                  )}
+                  <Feather name="chevron-right" size={22} color={Colors.textLight} />
+                </Pressable>
+              ))}
+            <Pressable
+              style={styles.addFloorPlanBtn}
+              onPress={handleAddFloorPlan}
+              disabled={addingFloorPlan}
+            >
+              {addingFloorPlan ? (
+                <ActivityIndicator size="small" color={Colors.primary} />
+              ) : (
+                <>
+                  <Feather name="plus" size={18} color={Colors.primary} />
+                  <Text style={styles.addFloorPlanText}>Add Floor Plan</Text>
+                </>
+              )}
+            </Pressable>
+          </>
+        )}
 
         {/* HSMS checklists */}
         <Pressable style={styles.sectionHeader} onPress={() => setChecklistsCollapsed(v => !v)}>
@@ -533,4 +793,21 @@ const styles = StyleSheet.create({
   modalBtnDelete: { backgroundColor: Colors.danger },
   modalBtnCancelText: { color: Colors.text, fontWeight: '600', fontSize: 16 },
   modalBtnDeleteText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  floorPlanDeleteBtn: {
+    padding: 8,
+    marginRight: 4,
+  },
+  floorPlanThumb: {
+    width: 50, height: 50, borderRadius: 10, resizeMode: 'cover', marginRight: 17,
+  },
+  addFloorPlanBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 19, marginBottom: 14,
+    paddingVertical: 12, paddingHorizontal: 16,
+    borderRadius: 12, borderWidth: 1.5,
+    borderColor: Colors.primary + '60',
+    borderStyle: 'dashed',
+    backgroundColor: Colors.primary + '08',
+  },
+  addFloorPlanText: { fontSize: 15, fontWeight: '600', color: Colors.primary },
 });

@@ -15,6 +15,13 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 // v5 → v6: Rebuild risk_evaluations so hazard category and risk scoring columns
 //           can be nullable (optional in mobile UI).
 // v7 → v8: Add structured machine metadata and structured risk-evaluation inputs.
+// v8 → v9: Add checklist_frameworks table; add framework_id to question_sets and
+//           checklist_instances. framework_id is optional in migration so existing
+//           rows are valid until the next pull populates them from the server.
+// v9 → v10: Add floor_plans and floor_plan_markers tables; add floor_plan_id,
+//            location_x, location_y to risk_evaluations.
+// v10 → v11: Add review_status, edited_reference, edited_hazard, edited_control to
+//             risk_evaluations (admin review workflow; synced from server).
 
 export default schemaMigrations({
   migrations: [
@@ -179,6 +186,88 @@ export default schemaMigrations({
         }),
       ],
       // v8: structured mobile capture for AI-assisted matching/rewrite workflows.
+    },
+    {
+      toVersion: 10,
+      steps: [
+        createTable({
+          name: 'floor_plans',
+          columns: [
+            { name: 'server_id',  type: 'number', isOptional: true },
+            { name: 'site_id',    type: 'string' },
+            { name: 'name',       type: 'string' },
+            { name: 'image_url',  type: 'string', isOptional: true },
+            { name: 'sort_order', type: 'number' },
+            { name: 'is_synced',  type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'floor_plan_markers',
+          columns: [
+            { name: 'server_id',     type: 'number', isOptional: true },
+            { name: 'floor_plan_id', type: 'string' },
+            { name: 'assembly_id',   type: 'string', isOptional: true },
+            { name: 'machine_id',    type: 'string', isOptional: true },
+            { name: 'x_percent',     type: 'number' },
+            { name: 'y_percent',     type: 'number' },
+            { name: 'is_synced',     type: 'boolean' },
+            { name: 'created_at',    type: 'number' },
+            { name: 'updated_at',    type: 'number' },
+          ],
+        }),
+        addColumns({
+          table: 'risk_evaluations',
+          columns: [
+            { name: 'floor_plan_id', type: 'string', isOptional: true },
+            { name: 'location_x',    type: 'number', isOptional: true },
+            { name: 'location_y',    type: 'number', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 11,
+      steps: [
+        addColumns({
+          table: 'risk_evaluations',
+          columns: [
+            { name: 'review_status',    type: 'string', isOptional: true },
+            { name: 'edited_reference', type: 'string', isOptional: true },
+            { name: 'edited_hazard',    type: 'string', isOptional: true },
+            { name: 'edited_control',   type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 9,
+      steps: [
+        createTable({
+          name: 'checklist_frameworks',
+          columns: [
+            { name: 'server_id',      type: 'number', isOptional: true },
+            { name: 'framework_name', type: 'string' },
+            { name: 'description',    type: 'string', isOptional: true },
+            { name: 'applies_to',     type: 'string' },
+            { name: 'created_at',     type: 'number' },
+          ],
+        }),
+        addColumns({
+          table: 'question_sets',
+          columns: [
+            // isOptional in migration so existing rows survive until next pull populates them.
+            { name: 'framework_id', type: 'string', isOptional: true },
+          ],
+        }),
+        addColumns({
+          table: 'checklist_instances',
+          columns: [
+            { name: 'framework_id', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
     },
   ],
 });

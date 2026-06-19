@@ -19,7 +19,8 @@ export type WizardStepType =
   | 'single-select'
   | 'multi-select'
   | 'photo'
-  | 'badge';
+  | 'badge'
+  | 'location';
 
 /** A suggestion chip shown below a text/multiline field. */
 export interface WizardSuggestion {
@@ -65,6 +66,19 @@ export interface FocusWizardModalRef {
    * Call after the wizard is visible again.
    */
   injectPhoto: (key: string, uri: string) => void;
+  /**
+   * Reopen the wizard directly on the success screen (skipping all steps).
+   * Call skipNextReset() is implicit — no need to call it separately.
+   * Use after an external action (e.g. floor plan location) was completed
+   * and the record was already saved, so the wizard should show done state.
+   */
+  completeWithSuccess: () => void;
+}
+
+export interface WizardSuccessAction {
+  icon: string;
+  label: string;
+  onPress: () => void;
 }
 
 interface Props {
@@ -77,6 +91,14 @@ interface Props {
   onClose: () => void;
   /** Returns the subtitle shown on the success screen, e.g. the saved item's name. */
   getSuccessDetail?: (data: Record<string, any>) => string;
+  /** Extra action buttons rendered between "Add Another" and "Done" on the success screen. */
+  successActions?: WizardSuccessAction[];
+  /**
+   * When provided, 'location' steps show a "Mark on floor plan" button.
+   * Called with the accumulated wizard data so the parent can save first, then navigate.
+   * The parent is responsible for closing the wizard.
+   */
+  onLocationRequest?: (data: Record<string, any>) => void;
   /**
    * When provided, photo steps call this instead of launching the picker directly.
    * The parent is responsible for closing the wizard, capturing the photo, and
@@ -121,6 +143,8 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
   onSave,
   onClose,
   getSuccessDetail,
+  successActions,
+  onLocationRequest,
   onPhotoRequest,
 }: Props, ref) {
   const insets = useSafeAreaInsets();
@@ -136,6 +160,7 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
   const autoTimer = useRef<ReturnType<typeof setTimeout>>();
   const visibleRef = useRef(visible);
   const skipResetRef = useRef(false);
+  const forcedDoneRef = useRef(false);
   useEffect(() => { visibleRef.current = visible; }, [visible]);
 
   useImperativeHandle(ref, () => ({
@@ -146,6 +171,11 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
       autoTimer.current = setTimeout(() => {
         if (visibleRef.current) goNextRef.current();
       }, 500);
+    },
+    completeWithSuccess: () => {
+      skipResetRef.current = true;
+      forcedDoneRef.current = true;
+      setIsDone(true);
     },
   }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -160,11 +190,15 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
     animateTo('forward', () => setStep(nextStep));
   };
 
-  // Reset all state when modal opens (skipped after temporary close for photo capture).
+  // Reset all state when modal opens (skipped after temporary close for photo capture or location).
   useEffect(() => {
     if (visible) {
       if (skipResetRef.current) {
         skipResetRef.current = false;
+        if (forcedDoneRef.current) {
+          forcedDoneRef.current = false;
+          setIsDone(true);
+        }
         return;
       }
       setStep(0);
@@ -296,9 +330,10 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
     ? def.getSuggestions(typeof currentValue === 'string' ? currentValue : '', data)
     : [];
 
-  // Dots exclude badge steps (interstitials, not real data steps).
-  const dotsTotal = steps.filter(s => s.type !== 'badge').length;
-  const dotsFilled = def ? steps.slice(0, step + 1).filter(s => s.type !== 'badge').length : dotsTotal;
+  // Dots exclude badge steps only (brief auto-advancing result card, not a real user step).
+  const isInterstitial = (t: WizardStepType) => t === 'badge';
+  const dotsTotal = steps.filter(s => !isInterstitial(s.type)).length;
+  const dotsFilled = def ? steps.slice(0, step + 1).filter(s => !isInterstitial(s.type)).length : dotsTotal;
 
   const safeAreaStyle = {
     paddingTop: insets.top + 8,
@@ -323,6 +358,12 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
               <Feather name="plus" size={19} color="#fff" />
               <Text style={styles.addAnotherText}>Add Another</Text>
             </Pressable>
+            {successActions?.map((action, i) => (
+              <Pressable key={i} style={styles.successActionBtn} onPress={action.onPress}>
+                <Feather name={action.icon as any} size={19} color="#fff" />
+                <Text style={styles.addAnotherText}>{action.label}</Text>
+              </Pressable>
+            ))}
             <Pressable style={styles.doneBtn} onPress={onClose}>
               <Text style={styles.doneBtnText}>Done</Text>
             </Pressable>
@@ -495,6 +536,23 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
         );
       }
 
+      case 'location':
+        return (
+          <View style={styles.card}>
+            <Pressable
+              style={styles.locationMarkBtn}
+              onPress={() => onLocationRequest?.(data)}
+            >
+              <Feather name="map-pin" size={22} color="#fff" />
+              <Text style={styles.locationMarkBtnText}>Mark on floor plan</Text>
+            </Pressable>
+            <View style={styles.locationDivider} />
+            <Pressable style={styles.locationSkipBtn} onPress={handleSkip}>
+              <Text style={styles.locationSkipBtnText}>Skip for now</Text>
+            </Pressable>
+          </View>
+        );
+
       case 'badge': {
         const badge = def.computeBadge ? def.computeBadge(data) : null;
         const colour = badge?.rating ? RATING_COLOURS[badge.rating] : DK.textMuted;
@@ -547,9 +605,9 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
 
         {/* Step label */}
         <Text style={styles.stepLabel}>
-          {def.type !== 'badge'
-            ? `STEP ${dotsFilled} OF ${dotsTotal}`
-            : 'RESULT'}
+          {def.type === 'badge'
+            ? 'RESULT'
+            : `STEP ${dotsFilled} OF ${dotsTotal}`}
         </Text>
 
         {/* Save error (shown when save fails on a non-badge step) */}
@@ -607,14 +665,14 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
           </ScrollView>
         </Animated.View>
 
-        {/* Bottom navigation — hidden on badge steps (they auto-advance to save) */}
+        {/* Bottom navigation — hidden on badge only; location shows Back but not Next (has own inline buttons) */}
         {def.type !== 'badge' && (
           <View style={styles.nav}>
             {def.type === 'single-select' ? (
               <View style={styles.autoHintRow}>
                 <Text style={styles.autoHintText}>Tap a choice to continue</Text>
               </View>
-            ) : (
+            ) : def.type !== 'location' ? (
               <Pressable
                 style={[styles.nextBtn, (!canNext || isSaving) && styles.nextBtnDisabled]}
                 onPress={handleNext}
@@ -628,12 +686,12 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
                     </>
                 }
               </Pressable>
-            )}
+            ) : null}
             <View style={styles.navRow}>
               <Pressable onPress={handleBack} hitSlop={14} disabled={isSaving}>
                 <Text style={[styles.backText, isSaving && styles.navDisabled]}>← Back</Text>
               </Pressable>
-              {def.skippable || !def.required ? (
+              {(def.skippable || !def.required) && def.type !== 'location' ? (
                 <Pressable onPress={handleSkip} hitSlop={14} disabled={isSaving}>
                   <Text style={[styles.skipText, isSaving && styles.navDisabled]}>skip →</Text>
                 </Pressable>
@@ -994,6 +1052,37 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
 
+  // Location step
+  locationMarkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    backgroundColor: DK.nextBtn,
+    borderRadius: 14,
+    paddingVertical: 22,
+    margin: 14,
+  },
+  locationMarkBtnText: {
+    color: '#fff',
+    fontSize: 19,
+    fontWeight: '700',
+  },
+  locationDivider: {
+    height: 1,
+    backgroundColor: DK.rowBorder,
+    marginHorizontal: 14,
+  },
+  locationSkipBtn: {
+    alignItems: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+  },
+  locationSkipBtnText: {
+    fontSize: 15,
+    color: DK.textDim,
+  },
+
   // Success / done screen
   doneRoot: {
     alignItems: 'center',
@@ -1024,6 +1113,15 @@ const styles = StyleSheet.create({
   doneActions: {
     width: '100%',
     gap: 12,
+  },
+  successActionBtn: {
+    backgroundColor: '#1E7A4A',
+    borderRadius: 14,
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
   },
   addAnotherBtn: {
     backgroundColor: DK.orange,

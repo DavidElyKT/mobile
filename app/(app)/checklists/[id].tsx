@@ -101,8 +101,14 @@ export default function ChecklistDetailScreen() {
   const openQSetsModal = useCallback(async () => {
     if (!checklist) return;
     const appliesToFilter = checklist.assemblyId ? 'assembly' : 'site';
+    const frameworkId = checklist.frameworkId;
     const sets = await db.get<QuestionSet>('question_sets')
-      .query(Q.where('applies_to', appliesToFilter))
+      .query(
+        Q.and(
+          Q.where('applies_to', appliesToFilter),
+          ...(frameworkId ? [Q.where('framework_id', frameworkId)] : []),
+        ),
+      )
       .fetch();
     setAvailableSets(sets);
     const currentIds: number[] = JSON.parse(checklist.questionSetIds ?? '[]');

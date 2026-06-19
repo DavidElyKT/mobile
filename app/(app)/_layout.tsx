@@ -34,6 +34,13 @@ export default function AppLayout() {
       <Stack.Screen name="risk-evaluations/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="risk-evaluations/[id]" />
       <Stack.Screen name="risk-evaluations/edit" options={{ presentation: 'modal' }} />
+      <Stack.Screen
+        name="admin-review/[siteId]"
+        options={{
+          headerStyle: { backgroundColor: '#B45309' },
+          headerTintColor: '#fff',
+        }}
+      />
     </Stack>
     </View>
     </SyncProvider>

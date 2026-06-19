@@ -40,10 +40,21 @@ export default class RiskEvaluation extends Model {
   @field('post_control_score') declare postControlScore: number | null;
   @field('post_control_rating') declare postControlRating: RiskLevel | null;
 
+  @field('floor_plan_id') declare floorPlanId: string | null;
+  @field('location_x') declare locationX: number | null;
+  @field('location_y') declare locationY: number | null;
+
   @field('created_by') declare createdBy: number | null;
   // true = promoted to global authoritative library by an Administrator in the desktop app.
   // Library items are surfaced as suggestions across all projects in the mobile autofill.
   @field('is_library_item') declare isLibraryItem: boolean;
+
+  // Admin review fields — set by Administrators; synced down from server.
+  @field('review_status')    declare reviewStatus: 'Pending' | 'Approved' | null;
+  @field('edited_reference') declare editedReference: string | null;
+  @field('edited_hazard')    declare editedHazard: string | null;
+  @field('edited_control')   declare editedControl: string | null;
+
   @field('is_synced') declare isSynced: boolean;
   @readonly @date('created_at') declare createdAt: Date;
   @date('updated_at') declare updatedAt: Date;

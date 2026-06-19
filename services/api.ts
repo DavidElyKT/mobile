@@ -191,6 +191,72 @@ export const RiskEvaluationsApi = {
 
   delete: (token: string, evalId: number) =>
     request<void>(`/risk-evaluations/${evalId}`, token, { method: 'DELETE' }),
+
+  listBySite: (token: string, projectId: number) =>
+    request<any[]>(`/risk-evaluations?project_id=${projectId}`, token),
+
+  approve: (token: string, evalId: number) =>
+    request<any>(`/risk-evaluations/${evalId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ review_status: 'Approved' }),
+    }),
+
+  unapprove: (token: string, evalId: number) =>
+    request<any>(`/risk-evaluations/${evalId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ review_status: 'Pending' }),
+    }),
+
+  updateReviewFields: (
+    token: string,
+    evalId: number,
+    fields: {
+      edited_reference?: string | null;
+      edited_hazard?: string | null;
+      edited_control?: string | null;
+      review_status?: 'Pending' | 'Approved';
+    },
+  ) =>
+    request<any>(`/risk-evaluations/${evalId}`, token, {
+      method: 'PUT',
+      body: JSON.stringify(fields),
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// Floor Plans
+// ---------------------------------------------------------------------------
+
+export const FloorPlansApi = {
+  list: (token: string, siteId: number) =>
+    request<any[]>(`/floor-plans?site_id=${siteId}`, token),
+
+  create: (token: string, body: object) =>
+    request<any>('/floor-plans', token, { method: 'POST', body: JSON.stringify(body) }),
+
+  update: (token: string, floorPlanId: number, body: object) =>
+    request<any>(`/floor-plans/${floorPlanId}`, token, { method: 'PUT', body: JSON.stringify(body) }),
+
+  delete: (token: string, floorPlanId: number) =>
+    request<void>(`/floor-plans/${floorPlanId}`, token, { method: 'DELETE' }),
+};
+
+// ---------------------------------------------------------------------------
+// Floor Plan Markers
+// ---------------------------------------------------------------------------
+
+export const FloorPlanMarkersApi = {
+  list: (token: string, floorPlanId: number) =>
+    request<any[]>(`/floor-plan-markers?floor_plan_id=${floorPlanId}`, token),
+
+  create: (token: string, body: object) =>
+    request<any>('/floor-plan-markers', token, { method: 'POST', body: JSON.stringify(body) }),
+
+  update: (token: string, markerId: number, body: object) =>
+    request<any>(`/floor-plan-markers/${markerId}`, token, { method: 'PUT', body: JSON.stringify(body) }),
+
+  delete: (token: string, markerId: number) =>
+    request<void>(`/floor-plan-markers/${markerId}`, token, { method: 'DELETE' }),
 };
 
 // ---------------------------------------------------------------------------

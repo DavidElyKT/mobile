@@ -1,8 +1,10 @@
 import { View, Text, TextInput, StyleSheet, Pressable, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { Q } from '@nozbe/watermelondb';
+import { useRecord, useQuery } from '@/db/hooks';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useDemoMode } from '@/context/DemoModeContext';
@@ -14,6 +16,7 @@ import { isDemoSite } from '@/utils/demoMode';
 import Machine from '@/db/models/Machine.model';
 import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
+import FloorPlan from '@/db/models/FloorPlan.model';
 import { useMachineSuggestions, filterSuggestions, normalizeEntry } from '@/hooks/useMachineSuggestions';
 import FocusWizardModal, { type FocusWizardModalRef, type WizardStep, type WizardSuggestion } from '@/components/FocusWizardModal';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
@@ -37,13 +40,22 @@ export default function NewMachineScreen() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [savedName, setSavedName] = useState('');
+  const [savedMachineId, setSavedMachineId] = useState<string | null>(null);
   const [focusModeOpen, setFocusModeOpen] = useState(false);
   const wizardRef = useRef<FocusWizardModalRef>(null);
+  const pendingCompleteRef = useRef(false);
   const [pendingAnnotation, setPendingAnnotation] = useState<
     | { source: 'wizard'; uri: string; key: string }
     | { source: 'form'; uri: string; field: 'pictureUrl' | 'nameplateUrl' }
     | null
   >(null);
+  const assembly = useRecord<Assembly>(db.get<Assembly>('assemblies'), assembly_id);
+  const floorPlans = useQuery<FloorPlan>(
+    db.get<FloorPlan>('floor_plans').query(Q.where('site_id', assembly?.siteId ?? '')),
+    [assembly?.siteId],
+  );
+  const hasFloorPlans = floorPlans.length > 0;
+
   const { categorySuggestions, useSuggestions } = useMachineSuggestions(db, machineCategory);
 
   const visibleCategorySuggestions = useMemo(
@@ -115,7 +127,13 @@ export default function NewMachineScreen() {
       photoLabel: 'Nameplate Photo',
       skippable: true,
     },
-  ], [categorySuggestions, useSuggestions]);
+    ...(hasFloorPlans ? [{
+      key: '_location',
+      type: 'location' as const,
+      question: 'Where is this sub-machine?',
+      subtext: 'Mark its position on the floor plan.',
+    }] : []),
+  ], [categorySuggestions, useSuggestions, hasFloorPlans]);
 
   async function handleWizardPhotoRequest(type: 'camera' | 'library', key: string) {
     wizardRef.current?.skipNextReset();
@@ -176,7 +194,7 @@ export default function NewMachineScreen() {
     if (pending?.source === 'wizard') setFocusModeOpen(true);
   }
 
-  async function handleFocusSave(wizardData: Record<string, any>): Promise<void> {
+  async function createMachineRecord(wizardData: Record<string, any>): Promise<Machine> {
     const newMachine = await db.write(async () => {
       return await db.get<Machine>('machines').create(m => {
         m.assemblyId = assembly_id;
@@ -197,19 +215,137 @@ export default function NewMachineScreen() {
     if (wizardData.nameplateUrl?.startsWith('file://')) {
       await enqueuePhoto({ localUri: wizardData.nameplateUrl, collection: 'machines', recordId: newMachine.id, field: 'nameplate_photo_url' });
     }
-    // Wizard owns success state — no setSaved/setFocusModeOpen here.
+    return newMachine;
   }
+
+  async function handleFocusSave(wizardData: Record<string, any>): Promise<void> {
+    const newMachine = await createMachineRecord(wizardData);
+    setSavedMachineId(newMachine.id);
+    setSavedName((wizardData.machineNameReference || '').trim());
+  }
+
+  async function handleLocationRequest(wizardData: Record<string, any>) {
+    setFocusModeOpen(false);
+    try {
+      const newMachine = await createMachineRecord(wizardData);
+      const machineName = (wizardData.machineNameReference || '').trim();
+      setSavedMachineId(newMachine.id);
+      setSavedName(machineName);
+      const fps = floorPlans;
+      if (fps.length === 0) {
+        // No floor plans — skip straight to success screen inside focus mode
+        wizardRef.current?.completeWithSuccess();
+        setFocusModeOpen(true);
+        return;
+      }
+      // Navigate to floor plan editor with push (not replace) so we can return.
+      // useFocusEffect below detects the return and reopens the wizard on success.
+      pendingCompleteRef.current = true;
+      const navigate = (fpId: string) => router.push({
+        pathname: '/(app)/floor-plans/[id]',
+        params: { id: fpId, entity_id: newMachine.id, entity_type: 'machine', entity_name: machineName },
+      });
+      if (fps.length === 1) {
+        navigate(fps[0].id);
+      } else {
+        Alert.alert(
+          'Choose Floor Plan',
+          'Which floor plan should this sub-machine be marked on?',
+          [
+            ...fps.map(fp => ({ text: fp.name, onPress: () => navigate(fp.id) })),
+            {
+              text: 'Cancel', style: 'cancel' as const,
+              onPress: () => {
+                pendingCompleteRef.current = false;
+                wizardRef.current?.completeWithSuccess();
+                setFocusModeOpen(true);
+              },
+            },
+          ],
+        );
+      }
+    } catch (e: any) {
+      pendingCompleteRef.current = false;
+      Alert.alert('Save failed', e.message);
+      setFocusModeOpen(true);
+    }
+  }
+
+  // When the user returns from the floor plan editor after a focus-mode location save,
+  // reopen the wizard on the success screen (record was already saved in handleLocationRequest).
+  useFocusEffect(useCallback(() => {
+    if (pendingCompleteRef.current) {
+      pendingCompleteRef.current = false;
+      wizardRef.current?.completeWithSuccess();
+      setFocusModeOpen(true);
+    }
+  }, []));
 
   useEffect(() => {
     if (isDemoMode && assembly_id) {
       db.get<Assembly>('assemblies').find(assembly_id)
-        .then(assembly => db.get<Site>('sites').find(assembly.siteId))
+        .then(a => db.get<Site>('sites').find(a.siteId))
         .then(site => setBlockedByDemoMode(!isDemoSite(site)))
         .catch(() => setBlockedByDemoMode(true));
     } else {
       setBlockedByDemoMode(false);
     }
   }, [assembly_id, db, isDemoMode]);
+
+  function navigateToFloorPlan(machineId: string, machineName: string) {
+    const fps = floorPlans;
+    if (fps.length === 0) return;
+    const navigate = (fpId: string) => router.replace({
+      pathname: '/(app)/floor-plans/[id]',
+      params: { id: fpId, entity_id: machineId, entity_type: 'machine', entity_name: machineName },
+    });
+    if (fps.length === 1) {
+      navigate(fps[0].id);
+    } else {
+      Alert.alert(
+        'Choose Floor Plan',
+        'Which floor plan should this sub-machine be marked on?',
+        [
+          ...fps.map(fp => ({ text: fp.name, onPress: () => navigate(fp.id) })),
+          { text: 'Cancel', style: 'cancel' as const },
+        ],
+      );
+    }
+  }
+
+  async function handleMarkLocation() {
+    if (!savedMachineId) return;
+    navigateToFloorPlan(savedMachineId, savedName);
+  }
+
+  async function handleSaveAndMark() {
+    if (!nameRef.trim()) { setError('Machine name/reference is required.'); return; }
+    setSaving(true);
+    try {
+      const newMachine = await db.write(async () => {
+        return await db.get<Machine>('machines').create(m => {
+          m.assemblyId = assembly_id;
+          m.machineNameReference = nameRef.trim();
+          m.machineCategory = normalizeEntry(machineCategory) || null;
+          m.machineUse = normalizeEntry(machineUse) || null;
+          m.manufacturer = manufacturer.trim();
+          m.model = model.trim();
+          m.serialNumber = serialNumber.trim();
+          m.description = description.trim();
+          m.pictureUrl = pictureUrl;
+          m.nameplatePhotoUrl = nameplateUrl;
+          m.isSynced = false;
+        });
+      });
+      if (pictureUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: pictureUrl, collection: 'machines', recordId: newMachine.id, field: 'picture_url' });
+      }
+      if (nameplateUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: nameplateUrl, collection: 'machines', recordId: newMachine.id, field: 'nameplate_photo_url' });
+      }
+      navigateToFloorPlan(newMachine.id, nameRef.trim());
+    } catch (e: any) { setError(e.message); } finally { setSaving(false); }
+  }
 
   async function handleSave() {
     if (!nameRef.trim()) { setError('Machine name/reference is required.'); return; }
@@ -241,6 +377,7 @@ export default function NewMachineScreen() {
       }
 
       setSavedName(nameRef.trim());
+      setSavedMachineId(newMachine.id);
       setSaved(true);
     } catch (e: any) { setError(e.message); } finally { setSaving(false); }
   }
@@ -259,6 +396,7 @@ export default function NewMachineScreen() {
     setSaving(false);
     setSaved(false);
     setSavedName('');
+    setSavedMachineId(null);
   }
 
   if (blockedByDemoMode) return <DemoModeBlocked />;
@@ -276,6 +414,15 @@ export default function NewMachineScreen() {
             <Feather name="plus" size={19} color="#fff" />
             <Text style={styles.buttonText}>Add Another</Text>
           </Pressable>
+          {savedMachineId && hasFloorPlans ? (
+            <Pressable
+              style={[styles.button, { backgroundColor: Colors.orange }]}
+              onPress={handleMarkLocation}
+            >
+              <Feather name="map-pin" size={19} color="#fff" />
+              <Text style={styles.buttonText}>Mark Location</Text>
+            </Pressable>
+          ) : null}
           <Pressable style={styles.button} onPress={() => router.back()}>
             <Feather name="arrow-left" size={19} color="#fff" />
             <Text style={styles.buttonText}>Done</Text>
@@ -366,6 +513,17 @@ export default function NewMachineScreen() {
           onAnnotationRequest={(uri) => setPendingAnnotation({ source: 'form', uri, field: 'nameplateUrl' })} />
       </View>
 
+      {hasFloorPlans && (
+        <>
+          <Text style={styles.label}>Location</Text>
+          <Pressable style={styles.locationRow} onPress={handleSaveAndMark} disabled={saving}>
+            <Feather name="map-pin" size={20} color={Colors.orange} />
+            <Text style={styles.locationRowText}>Mark on floor plan</Text>
+            <Feather name="chevron-right" size={18} color={Colors.textLight} />
+          </Pressable>
+        </>
+      )}
+
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
         {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Sub-machine</Text>}
       </Pressable>
@@ -378,6 +536,7 @@ export default function NewMachineScreen() {
       onSave={handleFocusSave}
       onClose={() => setFocusModeOpen(false)}
       getSuccessDetail={(d) => d.machineNameReference || ''}
+      onLocationRequest={handleLocationRequest}
       onPhotoRequest={handleWizardPhotoRequest}
     />
     <PhotoAnnotationModal
@@ -418,6 +577,21 @@ const styles = StyleSheet.create({
   },
   multiline: { height: 106, textAlignVertical: 'top' },
   photoRow: { flexDirection: 'row', gap: 14 },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 12,
+  },
+  locationRowText: {
+    flex: 1,
+    fontSize: 17,
+    color: Colors.textMuted,
+  },
   suggestionWrap: { marginTop: 10 },
   suggestionLabel: { fontSize: 13, fontWeight: '600', color: Colors.textMuted, marginBottom: 8 },
   suggestionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

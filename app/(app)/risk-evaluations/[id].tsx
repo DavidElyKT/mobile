@@ -3,7 +3,8 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
-import { useRecord } from '@/db/hooks';
+import { Q } from '@nozbe/watermelondb';
+import { useRecord, useQuery } from '@/db/hooks';
 import { useAuth } from '@/context/AuthContext';
 import { useDemoMode } from '@/context/DemoModeContext';
 import { RiskEvaluationsApi } from '@/services/api';
@@ -15,6 +16,8 @@ import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import Machine from '@/db/models/Machine.model';
 import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
+import FloorPlan from '@/db/models/FloorPlan.model';
+import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 
 export default function RiskEvaluationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -33,6 +36,25 @@ export default function RiskEvaluationDetailScreen() {
   const site = useRecord<Site>(
     db.get<Site>('sites'),
     evaluation?.siteId ?? assembly?.siteId,
+  );
+  // Markers used to compute inherited location
+  const machineMarkers = useQuery<FloorPlanMarker>(
+    db.get<FloorPlanMarker>('floor_plan_markers').query(
+      Q.where('machine_id', evaluation?.machineId ?? ''),
+    ),
+    [evaluation?.machineId],
+  );
+  const assemblyMarkers = useQuery<FloorPlanMarker>(
+    db.get<FloorPlanMarker>('floor_plan_markers').query(
+      Q.where('assembly_id', evaluation?.assemblyId ?? ''),
+    ),
+    [evaluation?.assemblyId],
+  );
+  const siteFloorPlans = useQuery<FloorPlan>(
+    db.get<FloorPlan>('floor_plans').query(
+      Q.where('site_id', site?.id ?? ''),
+    ),
+    [site?.id],
   );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -201,6 +223,49 @@ export default function RiskEvaluationDetailScreen() {
               : 'No reduction'}
           </Text>
         </View>
+
+        {/* Location on floor plan */}
+        {(() => {
+          // Determine effective location: override takes precedence, then inherited
+          const overrideFloorPlan = evaluation.floorPlanId
+            ? siteFloorPlans.find(p => p.id === evaluation.floorPlanId)
+            : null;
+          const inheritedMarker = (evaluation.machineId ? machineMarkers[0] : null)
+            ?? (evaluation.assemblyId ? assemblyMarkers[0] : null);
+          const inheritedFloorPlan = inheritedMarker
+            ? siteFloorPlans.find(p => p.id === inheritedMarker.floorPlanId)
+            : null;
+
+          if (!overrideFloorPlan && !inheritedFloorPlan) return null;
+
+          const isOverride = !!overrideFloorPlan;
+          const effectivePlan = overrideFloorPlan ?? inheritedFloorPlan!;
+          const sourceLabel = isOverride
+            ? 'Custom location'
+            : evaluation.machineId ? 'Inherited from machine' : 'Inherited from asset';
+
+          return (
+            <View style={[styles.card, styles.locationCard]}>
+              <View style={styles.sectionLabelRow}>
+                <Feather name="map-pin" size={17} color={Colors.primary} />
+                <Text style={styles.sectionLabel}>Location</Text>
+              </View>
+              <View style={styles.locationRow}>
+                <View style={styles.locationInfo}>
+                  <Text style={styles.locationPlanName}>{effectivePlan.name}</Text>
+                  <Text style={styles.locationSource}>{sourceLabel}</Text>
+                </View>
+                <Pressable
+                  style={styles.locationViewBtn}
+                  onPress={() => router.push(`/(app)/floor-plans/${effectivePlan.id}`)}
+                >
+                  <Feather name="map" size={14} color={Colors.primary} />
+                  <Text style={styles.locationViewText}>View</Text>
+                </Pressable>
+              </View>
+            </View>
+          );
+        })()}
       </ScrollView>
 
       <Modal visible={confirmingDelete} transparent animationType="fade" onRequestClose={() => setConfirmingDelete(false)}>
@@ -373,4 +438,18 @@ const styles = StyleSheet.create({
   modalBtnDelete: { backgroundColor: Colors.danger },
   modalBtnCancelText: { fontSize: 18, fontWeight: '600', color: Colors.text },
   modalBtnDeleteText: { fontSize: 18, fontWeight: '700', color: '#fff' },
+  locationCard: {
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.primary,
+  },
+  locationRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  locationInfo: { flex: 1 },
+  locationPlanName: { fontSize: 16, fontWeight: '600', color: Colors.text },
+  locationSource: { fontSize: 13, color: Colors.textLight, marginTop: 2 },
+  locationViewBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8,
+    backgroundColor: Colors.primary + '12',
+  },
+  locationViewText: { fontSize: 14, fontWeight: '600', color: Colors.primary },
 });

@@ -10,7 +10,7 @@ import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeabl
 import { useRecord, useQuery } from '@/db/hooks';
 import { useAuth } from '@/context/AuthContext';
 import { useDemoMode } from '@/context/DemoModeContext';
-import { AssembliesApi, MachinesApi } from '@/services/api';
+import { AssembliesApi, MachinesApi, FloorPlanMarkersApi } from '@/services/api';
 import { useSync } from '@/context/SyncContext';
 import EmptyState from '@/components/EmptyState';
 import { SkeletonDetailScreen } from '@/components/SkeletonLoader';
@@ -23,6 +23,8 @@ import Machine from '@/db/models/Machine.model';
 import ChecklistInstance from '@/db/models/ChecklistInstance.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import Site from '@/db/models/Site.model';
+import FloorPlan from '@/db/models/FloorPlan.model';
+import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -43,9 +45,18 @@ export default function AssetDetailScreen() {
   const riskEvals = useQuery<RiskEvaluation>(
     db.get<RiskEvaluation>('risk_evaluations').query(Q.where('assembly_id', id ?? '')),
   );
-  const { triggerSync, isSyncing } = useSync();
+  const floorPlans = useQuery<FloorPlan>(
+    db.get<FloorPlan>('floor_plans').query(Q.where('site_id', assembly?.siteId ?? '')),
+    [assembly?.siteId],
+  );
+  const asmMarkers = useQuery<FloorPlanMarker>(
+    db.get<FloorPlanMarker>('floor_plan_markers').query(Q.where('assembly_id', id ?? '')),
+  );
+  const { triggerSync } = useSync();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [removingMarker, setRemovingMarker] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     machines: true, checklists: true, riskEvals: true,
   });
@@ -185,6 +196,59 @@ export default function AssetDetailScreen() {
     );
   }
 
+  function handleMarkOnFloorPlan() {
+    const entityName = assembly?.assemblyName;
+    if (floorPlans.length === 1) {
+      router.push({
+        pathname: '/(app)/floor-plans/[id]',
+        params: { id: floorPlans[0].id, entity_id: id, entity_type: 'assembly', entity_name: entityName },
+      });
+    } else {
+      Alert.alert(
+        'Choose Floor Plan',
+        'Select which floor plan to mark this asset on:',
+        [
+          ...floorPlans.map(fp => ({
+            text: fp.name,
+            onPress: () => router.push({
+              pathname: '/(app)/floor-plans/[id]',
+              params: { id: fp.id, entity_id: id, entity_type: 'assembly', entity_name: entityName },
+            }),
+          })),
+          { text: 'Cancel', style: 'cancel' as const },
+        ],
+      );
+    }
+  }
+
+  async function handleRemoveMarker(marker: FloorPlanMarker) {
+    Alert.alert('Remove marker?', 'Remove this floor plan location pin?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          setRemovingMarker(true);
+          try {
+            if (typeof marker.serverId === 'number' && marker.serverId > 0) {
+              const token = await getAccessToken();
+              if (!token) {
+                Alert.alert('Offline', 'Connect to the internet to remove a synced marker.');
+                return;
+              }
+              await FloorPlanMarkersApi.delete(token, marker.serverId);
+            }
+            await db.write(async () => { await marker.destroyPermanently(); });
+          } catch (e: any) {
+            Alert.alert('Error', e.message);
+          } finally {
+            setRemovingMarker(false);
+          }
+        },
+      },
+    ]);
+  }
+
   if (!assembly || (isDemoMode && !site)) return <SkeletonDetailScreen />;
   if (hiddenByDemoMode) return <DemoModeBlocked />;
 
@@ -262,6 +326,56 @@ export default function AssetDetailScreen() {
             ) : null}
           </View>
         ) : null}
+
+        {/* Location on floor plan */}
+        <View style={styles.locationCard}>
+          <View style={styles.locationHead}>
+            <Feather name="map-pin" size={15} color={Colors.primary} />
+            <Text style={styles.locationHeadText}>Location</Text>
+          </View>
+          {floorPlans.length === 0 ? (
+            <Text style={styles.locationEmpty}>
+              No floor plans for this site. Add one from the site page.
+            </Text>
+          ) : asmMarkers.length === 0 ? (
+            <View style={styles.locationUnmarked}>
+              <Text style={styles.locationEmpty}>Not marked on any floor plan.</Text>
+              <Pressable style={styles.markBtn} onPress={handleMarkOnFloorPlan}>
+                <Feather name="map-pin" size={14} color="#fff" />
+                <Text style={styles.markBtnText}>Mark on Floor Plan</Text>
+              </Pressable>
+            </View>
+          ) : (
+            asmMarkers.map(marker => {
+              const fp = floorPlans.find(p => p.id === marker.floorPlanId);
+              return (
+                <View key={marker.id} style={styles.locationMarkerRow}>
+                  <View style={styles.locationMarkerInfo}>
+                    <Feather name="map" size={14} color={Colors.primary} />
+                    <Text style={styles.locationMarkerName}>{fp?.name ?? 'Floor Plan'}</Text>
+                  </View>
+                  <View style={styles.locationMarkerActions}>
+                    <Pressable
+                      style={styles.locationActionBtn}
+                      onPress={() => router.push(`/(app)/floor-plans/${marker.floorPlanId}`)}
+                    >
+                      <Text style={styles.locationActionView}>View</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.locationActionBtn}
+                      onPress={() => handleRemoveMarker(marker)}
+                      disabled={removingMarker}
+                    >
+                      {removingMarker
+                        ? <ActivityIndicator size="small" color={Colors.danger} />
+                        : <Text style={styles.locationActionRemove}>Remove</Text>}
+                    </Pressable>
+                  </View>
+                </View>
+              );
+            })
+          )}
+        </View>
       </>
     );
   }
@@ -426,7 +540,12 @@ export default function AssetDetailScreen() {
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
           refreshControl={
-            <RefreshControl refreshing={isSyncing} onRefresh={triggerSync} tintColor={Colors.primary} colors={[Colors.primary]} />
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={async () => { setIsRefreshing(true); try { await triggerSync(); } finally { setIsRefreshing(false); } }}
+              tintColor={Colors.primary}
+              colors={[Colors.primary]}
+            />
           }
         />
 
@@ -573,4 +692,27 @@ const styles = StyleSheet.create({
   modalBtnDelete: { backgroundColor: Colors.danger },
   modalBtnCancelText: { fontSize: 18, fontWeight: '600', color: Colors.text },
   modalBtnDeleteText: { fontSize: 18, fontWeight: '700', color: '#fff' },
+  locationCard: {
+    backgroundColor: Colors.card, borderRadius: 14, padding: 17, marginTop: 14,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  locationHead: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
+  locationHeadText: { fontSize: 14, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.6 },
+  locationEmpty: { fontSize: 14, color: Colors.textLight },
+  locationUnmarked: { gap: 10 },
+  markBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    backgroundColor: Colors.primary, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
+  },
+  markBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  locationMarkerRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 6,
+  },
+  locationMarkerInfo: { flexDirection: 'row', alignItems: 'center', gap: 7, flex: 1 },
+  locationMarkerName: { fontSize: 15, fontWeight: '500', color: Colors.text },
+  locationMarkerActions: { flexDirection: 'row', gap: 16 },
+  locationActionBtn: { padding: 4 },
+  locationActionView: { fontSize: 14, fontWeight: '600', color: Colors.primary },
+  locationActionRemove: { fontSize: 14, fontWeight: '600', color: Colors.danger },
 });

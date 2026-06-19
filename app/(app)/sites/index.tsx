@@ -18,10 +18,16 @@ export default function ProjectsListScreen() {
   const sites = useQuery<Site>(db.get<Site>('sites').query());
   const { isDemoMode } = useDemoMode();
 
-  const { triggerSync, isSyncing } = useSync();
+  const { triggerSync } = useSync();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [hideCompleted, setHideCompleted] = useState(true);
   const [collapsedCustomers, setCollapsedCustomers] = useState<Set<string>>(new Set());
+
+  async function handleRefresh() {
+    setIsRefreshing(true);
+    try { await triggerSync(); } finally { setIsRefreshing(false); }
+  }
 
   function toggleCustomer(customer: string) {
     setCollapsedCustomers(prev => {
@@ -111,7 +117,7 @@ export default function ProjectsListScreen() {
         <ScrollView
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
-          refreshControl={<RefreshControl refreshing={isSyncing} onRefresh={triggerSync} colors={[Colors.primary]} />}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={[Colors.primary]} />}
         >
           {grouped.map(({ customer, projects }) => {
             const collapsed = collapsedCustomers.has(customer);

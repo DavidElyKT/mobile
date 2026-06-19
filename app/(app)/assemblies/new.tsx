@@ -1,11 +1,13 @@
 import {
   View, Text, TextInput, StyleSheet, Pressable, ScrollView,
-  ActivityIndicator, Switch,
+  ActivityIndicator, Switch, Alert,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
+import { Q } from '@nozbe/watermelondb';
+import { useQuery } from '@/db/hooks';
 import { useDemoMode } from '@/context/DemoModeContext';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 import { enqueuePhoto } from '@/services/photoQueue';
@@ -15,6 +17,7 @@ import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { isDemoSite } from '@/utils/demoMode';
 import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
+import FloorPlan from '@/db/models/FloorPlan.model';
 
 type AssetType = 'standalone' | 'assembly';
 
@@ -35,6 +38,11 @@ export default function NewAssetScreen() {
   const [serialNumber, setSerialNumber] = useState('');
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [nameplateUrl, setNameplateUrl] = useState<string | null>(null);
+
+  const floorPlans = useQuery<FloorPlan>(
+    db.get<FloorPlan>('floor_plans').query(Q.where('site_id', site_id ?? '')),
+  );
+  const hasFloorPlans = floorPlans.length > 0;
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +69,65 @@ export default function NewAssetScreen() {
 
   function handleAnnotationCancel() {
     setPendingAnnotation(null);
+  }
+
+  async function handleMarkLocation() {
+    if (!savedAssembly) return;
+    await handleMarkLocationForAssembly(savedAssembly);
+  }
+
+  async function handleSaveAndMark() {
+    if (!assetName.trim()) { setError('Asset name is required.'); return; }
+    setSaving(true);
+    try {
+      const newAssembly = await db.write(async () => {
+        return await db.get<Assembly>('assemblies').create(a => {
+          a.siteId = site_id;
+          a.assemblyName = assetName.trim();
+          a.description = description.trim();
+          a.isInUse = isInUse;
+          a.assetType = assetType;
+          a.manufacturer = assetType === 'standalone' ? manufacturer.trim() : '';
+          a.model = assetType === 'standalone' ? model.trim() : '';
+          a.serialNumber = assetType === 'standalone' ? serialNumber.trim() : '';
+          a.pictureUrl = pictureUrl;
+          a.nameplatePhotoUrl = assetType === 'standalone' ? nameplateUrl : null;
+          a.isSynced = false;
+        });
+      });
+      if (pictureUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: pictureUrl, collection: 'assemblies', recordId: newAssembly.id, field: 'picture_url' });
+      }
+      if (assetType === 'standalone' && nameplateUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: nameplateUrl, collection: 'assemblies', recordId: newAssembly.id, field: 'nameplate_photo_url' });
+      }
+      // Navigate directly to floor plan editor, bypassing post-save prompt
+      await handleMarkLocationForAssembly(newAssembly);
+    } catch (e: any) { setError(e.message); setSaving(false); }
+  }
+
+  async function handleMarkLocationForAssembly(assembly: Assembly) {
+    const fps = floorPlans;
+    if (fps.length === 0) {
+      router.replace(`/(app)/assemblies/${assembly.id}`);
+      return;
+    }
+    const navigate = (fpId: string) => router.replace({
+      pathname: '/(app)/floor-plans/[id]',
+      params: { id: fpId, entity_id: assembly.id, entity_type: 'assembly', entity_name: assembly.assemblyName },
+    });
+    if (fps.length === 1) {
+      navigate(fps[0].id);
+    } else {
+      Alert.alert(
+        'Choose Floor Plan',
+        'Which floor plan should this asset be marked on?',
+        [
+          ...fps.map(fp => ({ text: fp.name, onPress: () => navigate(fp.id) })),
+          { text: 'Cancel', style: 'cancel' as const },
+        ],
+      );
+    }
   }
 
   async function handleSave() {
@@ -123,6 +190,15 @@ export default function NewAssetScreen() {
             <Feather name="plus" size={19} color="#fff" />
             <Text style={styles.buttonText}>Add Sub-machine</Text>
           </Pressable>
+          {hasFloorPlans && (
+            <Pressable
+              style={[styles.button, { backgroundColor: Colors.orange }]}
+              onPress={handleMarkLocation}
+            >
+              <Feather name="map-pin" size={19} color="#fff" />
+              <Text style={styles.buttonText}>Mark Location</Text>
+            </Pressable>
+          )}
           <Pressable
             style={[styles.button, styles.buttonNeutral]}
             onPress={() => router.replace(`/(app)/assemblies/${savedAssembly.id}`)}
@@ -255,6 +331,17 @@ export default function NewAssetScreen() {
         )}
       </View>
 
+      {hasFloorPlans && (
+        <>
+          <Text style={styles.label}>Location</Text>
+          <Pressable style={styles.locationRow} onPress={handleSaveAndMark} disabled={saving}>
+            <Feather name="map-pin" size={20} color={Colors.orange} />
+            <Text style={styles.locationRowText}>Mark on floor plan</Text>
+            <Feather name="chevron-right" size={18} color={Colors.textLight} />
+          </Pressable>
+        </>
+      )}
+
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
         {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Create Asset</Text>}
       </Pressable>
@@ -299,6 +386,22 @@ const styles = StyleSheet.create({
   switchInfo: { flex: 1 },
   switchLabel: { fontSize: 17, fontWeight: '600', color: Colors.text, marginBottom: 2 },
   switchSub: { fontSize: 14, color: Colors.textMuted },
+
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.card,
+    borderRadius: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 12,
+  },
+  locationRowText: {
+    flex: 1,
+    fontSize: 17,
+    color: Colors.textMuted,
+  },
 
   typeRow: { flexDirection: 'row', gap: 14 },
   typeCard: {

@@ -3,12 +3,14 @@ import { field, date, children, readonly, relation } from '@nozbe/watermelondb/d
 import Assembly from './Assembly';
 import Site from './Site';
 import ChecklistResponse from './ChecklistResponse';
+import ChecklistFramework from './ChecklistFramework.model';
 
 export default class ChecklistInstance extends Model {
   static table = 'checklist_instances';
   static associations = {
     assemblies: { type: 'belongs_to' as const, key: 'assembly_id' },
     sites: { type: 'belongs_to' as const, key: 'site_id' },
+    checklist_frameworks: { type: 'belongs_to' as const, key: 'framework_id' },
     checklist_responses: { type: 'has_many' as const, foreignKey: 'checklist_id' },
   };
 
@@ -21,11 +23,13 @@ export default class ChecklistInstance extends Model {
   @field('status') declare status: 'In Progress' | 'Complete';
   // JSON string of server question_set_ids, e.g. "[1,2]"
   @field('question_set_ids') declare questionSetIds: string | null;
+  @field('framework_id') declare frameworkId: string | null;
   @field('is_synced') declare isSynced: boolean;
   @readonly @date('created_at') declare createdAt: Date;
   @date('updated_at') declare updatedAt: Date;
 
   @relation('assemblies', 'assembly_id') declare assembly: Assembly;
   @relation('sites', 'site_id') declare site: Site;
+  @relation('checklist_frameworks', 'framework_id') declare framework: ChecklistFramework;
   @children('checklist_responses') declare responses: Query<ChecklistResponse>;
 }

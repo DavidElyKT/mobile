@@ -39,8 +39,10 @@ export async function getCachedUserId(): Promise<number | null> {
 /** User-writable collections that can have pending (unsynced) records. */
 const WRITABLE_COLLECTIONS = [
   'sites',
+  'floor_plans',
   'assemblies',
   'machines',
+  'floor_plan_markers',
   'checklist_instances',
   'checklist_responses',
   'risk_evaluations',
@@ -61,14 +63,17 @@ export async function getPendingCount(): Promise<number> {
 // Table → WatermelonDB collection name mapping
 // --------------------------------------------------------------------------
 const TABLE_MAP: Record<string, string> = {
-  sites: 'sites',
-  assemblies: 'assemblies',
-  machines: 'machines',
-  checklist_instances: 'checklist_instances',
-  checklist_responses: 'checklist_responses',
-  risk_evaluations: 'risk_evaluations',
-  question_sets: 'question_sets',
-  questions: 'questions',
+  sites:                'sites',
+  assemblies:           'assemblies',
+  machines:             'machines',
+  checklist_frameworks: 'checklist_frameworks',
+  checklist_instances:  'checklist_instances',
+  checklist_responses:  'checklist_responses',
+  risk_evaluations:     'risk_evaluations',
+  question_sets:        'question_sets',
+  questions:            'questions',
+  floor_plans:          'floor_plans',
+  floor_plan_markers:   'floor_plan_markers',
 };
 
 /**
@@ -78,8 +83,10 @@ const TABLE_MAP: Record<string, string> = {
  */
 const PUSH_ORDER = [
   'sites',
+  'floor_plans',
   'assemblies',
   'machines',
+  'floor_plan_markers',
   'checklist_instances',
   'checklist_responses',
   'risk_evaluations',
@@ -96,28 +103,39 @@ const FK_FIELDS: Record<string, Record<string, string>> = {
   machines: {
     assembly_id: 'assemblies',
   },
-  checklist_instances: {
-    assembly_id: 'assemblies',
+  floor_plans: {
     site_id: 'sites',
+  },
+  floor_plan_markers: {
+    floor_plan_id: 'floor_plans',
+    assembly_id:   'assemblies',
+    machine_id:    'machines',
+  },
+  checklist_instances: {
+    assembly_id:  'assemblies',
+    site_id:      'sites',
+    framework_id: 'checklist_frameworks',
   },
   checklist_responses: {
     checklist_id: 'checklist_instances',
-    question_id: 'questions',
+    question_id:  'questions',
   },
   risk_evaluations: {
-    machine_id: 'machines',
-    assembly_id: 'assemblies',
-    site_id: 'sites',
-    checklist_id: 'checklist_instances',
+    machine_id:    'machines',
+    assembly_id:   'assemblies',
+    site_id:       'sites',
+    checklist_id:  'checklist_instances',
+    floor_plan_id: 'floor_plans',
   },
 };
 
 /** Photo URL fields that must never be pushed with local file:// values. */
 const PHOTO_FIELDS: Record<string, string[]> = {
-  assemblies: ['picture_url', 'nameplate_photo_url'],
-  machines: ['picture_url', 'nameplate_photo_url'],
+  assemblies:          ['picture_url', 'nameplate_photo_url'],
+  machines:            ['picture_url', 'nameplate_photo_url'],
+  floor_plans:         ['image_url'],
   checklist_responses: ['photo_url'],
-  risk_evaluations: ['photo_url'],
+  risk_evaluations:    ['photo_url'],
 };
 
 /**
@@ -126,6 +144,12 @@ const PHOTO_FIELDS: Record<string, string[]> = {
  * drifting into mobile sync semantics when the SQL schema expands.
  */
 const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
+  checklist_frameworks: [
+    'framework_name',
+    'description',
+    'applies_to',
+    'created_at',
+  ],
   sites: [
     'customer',
     'project_number',
@@ -171,6 +195,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'description',
     'is_base',
     'applies_to',
+    'framework_id',
     'created_at',
   ],
   questions: [
@@ -190,6 +215,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'date',
     'status',
     'question_set_ids',
+    'framework_id',
     'created_at',
     'updated_at',
   ],
@@ -224,6 +250,30 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'post_control_rating',
     'created_by',
     'is_library_item',
+    'floor_plan_id',
+    'location_x',
+    'location_y',
+    'review_status',
+    'edited_reference',
+    'edited_hazard',
+    'edited_control',
+    'created_at',
+    'updated_at',
+  ],
+  floor_plans: [
+    'site_id',
+    'name',
+    'image_url',
+    'sort_order',
+    'created_at',
+    'updated_at',
+  ],
+  floor_plan_markers: [
+    'floor_plan_id',
+    'assembly_id',
+    'machine_id',
+    'x_percent',
+    'y_percent',
     'created_at',
     'updated_at',
   ],
@@ -271,12 +321,14 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
 
   // parent collection name → (serverId → local UUID)
   const parentMaps: Record<string, Map<number, string>> = {
-    sites:               await _buildMap('sites'),
-    assemblies:          await _buildMap('assemblies'),
-    machines:            await _buildMap('machines'),
-    question_sets:       await _buildMap('question_sets'),
-    questions:           await _buildMap('questions'),
-    checklist_instances: await _buildMap('checklist_instances'),
+    sites:                await _buildMap('sites'),
+    assemblies:           await _buildMap('assemblies'),
+    machines:             await _buildMap('machines'),
+    checklist_frameworks: await _buildMap('checklist_frameworks'),
+    question_sets:        await _buildMap('question_sets'),
+    questions:            await _buildMap('questions'),
+    checklist_instances:  await _buildMap('checklist_instances'),
+    floor_plans:          await _buildMap('floor_plans'),
   };
 
   // FK columns for each server table: column name → parent collection
@@ -284,9 +336,12 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     assemblies:          { site_id: 'sites' },
     machines:            { assembly_id: 'assemblies' },
     questions:           { question_set_id: 'question_sets' },
-    checklist_instances: { assembly_id: 'assemblies', site_id: 'sites' },
+    question_sets:       { framework_id: 'checklist_frameworks' },
+    checklist_instances: { assembly_id: 'assemblies', site_id: 'sites', framework_id: 'checklist_frameworks' },
     checklist_responses: { checklist_id: 'checklist_instances', question_id: 'questions' },
-    risk_evaluations:    { machine_id: 'machines', assembly_id: 'assemblies', site_id: 'sites', checklist_id: 'checklist_instances' },
+    risk_evaluations:    { machine_id: 'machines', assembly_id: 'assemblies', site_id: 'sites', checklist_id: 'checklist_instances', floor_plan_id: 'floor_plans' },
+    floor_plans:         { site_id: 'sites' },
+    floor_plan_markers:  { floor_plan_id: 'floor_plans', assembly_id: 'assemblies', machine_id: 'machines' },
   };
 
   // Resolve any integer FK values in a fields object to local UUIDs.
@@ -654,14 +709,17 @@ async function _requireSyncToken(
 /** Server-side integer PK column name for each table */
 function _pkFor(table: string): string {
   const pkMap: Record<string, string> = {
-    sites: 'site_id',
-    assemblies: 'assembly_id',
-    machines: 'machine_id',
-    checklist_instances: 'checklist_id',
-    checklist_responses: 'response_id',
-    risk_evaluations: 'eval_id',
-    question_sets: 'question_set_id',
-    questions: 'question_id',
+    sites:                'site_id',
+    assemblies:           'assembly_id',
+    machines:             'machine_id',
+    checklist_frameworks: 'framework_id',
+    checklist_instances:  'checklist_id',
+    checklist_responses:  'response_id',
+    risk_evaluations:     'eval_id',
+    question_sets:        'question_set_id',
+    questions:            'question_id',
+    floor_plans:          'floor_plan_id',
+    floor_plan_markers:   'marker_id',
   };
   return pkMap[table] ?? 'id';
 }

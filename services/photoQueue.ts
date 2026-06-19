@@ -65,16 +65,19 @@ export async function processPhotoQueue(
         continue;
       }
 
-      // Read and upload via server-side endpoint
-      const filename = `photo_${Date.now()}.jpg`;
-      console.log(`[PhotoQueue] Uploading ${entry.collection}.${entry.field} (${entry.recordId})`);
+      // Infer MIME type and filename from local URI extension
+      const ext = entry.localUri.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
+      const isPdf = ext === 'pdf';
+      const filename = isPdf ? `floor_plan_${Date.now()}.pdf` : `photo_${Date.now()}.jpg`;
+      const contentType = isPdf ? 'application/pdf' : 'image/jpeg';
+      console.log(`[PhotoQueue] Uploading ${entry.collection}.${entry.field} (${entry.recordId}) as ${contentType}`);
       const base64 = await FileSystem.readAsStringAsync(entry.localUri, {
         encoding: 'base64',
       });
       const { url: blob_url } = await SyncApi.uploadPhoto(
         token,
         filename,
-        'image/jpeg',
+        contentType,
         base64,
       );
       console.log(`[PhotoQueue] Uploaded → ${blob_url}`);
