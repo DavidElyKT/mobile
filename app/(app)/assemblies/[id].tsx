@@ -254,14 +254,21 @@ export default function AssetDetailScreen() {
 
   const isAssemblyType = assembly.assetType === 'assembly';
 
+  const machineNameById = new Map(machines.map(m => [m.id, m.machineNameReference ?? '']));
+
   const filteredRiskEvals = (riskEvalSearch
-    ? riskEvals.filter(e =>
-        (e.nonComplianceReference ?? '').toLowerCase().includes(riskEvalSearch.toLowerCase()) ||
-        (e.whatMightGoWrong ?? '').toLowerCase().includes(riskEvalSearch.toLowerCase()) ||
-        (e.hazardousMovementTypes ?? '').toLowerCase().includes(riskEvalSearch.toLowerCase()) ||
-        (e.hazardCategory ?? '').toLowerCase().includes(riskEvalSearch.toLowerCase()) ||
-        (e.hazardDescription ?? '').toLowerCase().includes(riskEvalSearch.toLowerCase()),
-      )
+    ? riskEvals.filter(e => {
+        const q = riskEvalSearch.toLowerCase();
+        const machineName = e.machineId ? (machineNameById.get(e.machineId) ?? '') : '';
+        return (
+          (e.nonComplianceReference ?? '').toLowerCase().includes(q) ||
+          (e.whatMightGoWrong ?? '').toLowerCase().includes(q) ||
+          (e.hazardousMovementTypes ?? '').toLowerCase().includes(q) ||
+          (e.hazardCategory ?? '').toLowerCase().includes(q) ||
+          (e.hazardDescription ?? '').toLowerCase().includes(q) ||
+          machineName.toLowerCase().includes(q)
+        );
+      })
     : [...riskEvals]
   ).sort((a, b) =>
     (a.hazardCategory ?? '').localeCompare(b.hazardCategory ?? '') ||
@@ -390,10 +397,11 @@ export default function AssetDetailScreen() {
         onAction={() => router.push({ pathname: '/(app)/risk-evaluations/new', params: { assembly_id: id } })} />
     ),
     searchable: true, searchValue: riskEvalSearch, onSearchChange: setRiskEvalSearch,
-    searchPlaceholder: 'Search risk evaluations…',
+    searchPlaceholder: 'Search hazards or sub-machine…',
     renderItem: ({ item }: { item: RiskEvaluation }) => {
       const preColour = RATING_COLOURS[item.preControlRating as RiskLevel] ?? Colors.textMuted;
       const postColour = RATING_COLOURS[item.postControlRating as RiskLevel] ?? Colors.textMuted;
+      const machineName = item.machineId ? machineNameById.get(item.machineId) : undefined;
       return (
         <Pressable style={styles.card} onPress={() => router.push(`/(app)/risk-evaluations/${item.id}`)}>
           <View style={[styles.cardIcon, { backgroundColor: preColour + '18' }]}>
@@ -404,6 +412,12 @@ export default function AssetDetailScreen() {
               {item.nonComplianceReference || item.hazardCategory || 'Risk Evaluation'}
             </Text>
             <Text style={styles.cardSub} numberOfLines={1}>{item.hazardDescription}</Text>
+            {machineName ? (
+              <View style={styles.machineTag}>
+                <Feather name="cpu" size={11} color={Colors.primary} />
+                <Text style={styles.machineTagText} numberOfLines={1}>{machineName}</Text>
+              </View>
+            ) : null}
           </View>
           <View style={styles.ratingPills}>
             <Text style={[styles.ratingText, { color: preColour }]}>{item.preControlRating || '–'}</Text>
@@ -652,6 +666,12 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1 },
   cardTitle: { fontSize: 18, fontWeight: '600', color: Colors.text, marginBottom: 2 },
   cardSub: { fontSize: 16, color: Colors.textMuted },
+  machineTag: {
+    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
+    backgroundColor: Colors.primary + '12', borderRadius: 12,
+    paddingHorizontal: 8, paddingVertical: 3, marginTop: 6,
+  },
+  machineTagText: { fontSize: 12, fontWeight: '600', color: Colors.primary, maxWidth: 180 },
   badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14 },
   badgeComplete: { backgroundColor: Colors.success + '20' },
   badgeInProgress: { backgroundColor: Colors.warning + '20' },

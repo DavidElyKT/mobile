@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert,
-  Pressable, Modal, Image,
+  Pressable, Modal, Image, TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -13,6 +13,7 @@ import { useDemoMode } from '@/context/DemoModeContext';
 import { MachinesApi, FloorPlanMarkersApi } from '@/services/api';
 import { enqueuePhoto } from '@/services/photoQueue';
 import { Colors } from '@/constants/Colors';
+import { RATING_COLOURS, type RiskLevel } from '@/constants/risk';
 import PhotoPicker, { type PhotoPickerRef } from '@/components/PhotoPicker';
 import { SkeletonDetailScreen } from '@/components/SkeletonLoader';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
@@ -22,6 +23,7 @@ import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
+import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 
 export default function MachineDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -41,6 +43,10 @@ export default function MachineDetailScreen() {
   const machineMarkers = useQuery<FloorPlanMarker>(
     db.get<FloorPlanMarker>('floor_plan_markers').query(Q.where('machine_id', id ?? '')),
   );
+  const riskEvals = useQuery<RiskEvaluation>(
+    db.get<RiskEvaluation>('risk_evaluations').query(Q.where('machine_id', id ?? '')),
+  );
+  const [riskEvalSearch, setRiskEvalSearch] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [removingMarker, setRemovingMarker] = useState(false);
@@ -190,6 +196,23 @@ export default function MachineDetailScreen() {
     ]);
   }
 
+  const filteredRiskEvals = (riskEvalSearch
+    ? riskEvals.filter(e => {
+        const q = riskEvalSearch.toLowerCase();
+        return (
+          (e.nonComplianceReference ?? '').toLowerCase().includes(q) ||
+          (e.whatMightGoWrong ?? '').toLowerCase().includes(q) ||
+          (e.hazardousMovementTypes ?? '').toLowerCase().includes(q) ||
+          (e.hazardCategory ?? '').toLowerCase().includes(q) ||
+          (e.hazardDescription ?? '').toLowerCase().includes(q)
+        );
+      })
+    : [...riskEvals]
+  ).sort((a, b) =>
+    (a.hazardCategory ?? '').localeCompare(b.hazardCategory ?? '') ||
+    a.hazardDescription.localeCompare(b.hazardDescription),
+  );
+
   if (!machine || (isDemoMode && !site)) return <SkeletonDetailScreen />;
   if (hiddenByDemoMode) return <DemoModeBlocked />;
 
@@ -291,6 +314,68 @@ export default function MachineDetailScreen() {
                 </View>
               );
             })
+          )}
+        </View>
+
+        {/* Risk evaluations associated with this sub-machine */}
+        <View style={styles.riskCard}>
+          <View style={styles.riskHead}>
+            <View style={styles.riskHeadLeft}>
+              <Feather name="alert-triangle" size={15} color={Colors.primary} />
+              <Text style={styles.riskHeadText}>Risk Evaluations</Text>
+            </View>
+            <View style={styles.riskCount}>
+              <Text style={styles.riskCountText}>{riskEvals.length}</Text>
+            </View>
+          </View>
+          {riskEvals.length === 0 ? (
+            <Text style={styles.riskEmpty}>No risk evaluations linked to this sub-machine.</Text>
+          ) : (
+            <>
+              <TextInput
+                style={styles.riskSearch}
+                placeholder="Search risk evaluations…"
+                placeholderTextColor={Colors.textLight}
+                value={riskEvalSearch}
+                onChangeText={setRiskEvalSearch}
+                clearButtonMode="while-editing"
+              />
+              {filteredRiskEvals.length === 0 ? (
+                <Text style={styles.riskEmpty}>No matches.</Text>
+              ) : (
+                filteredRiskEvals.map(item => {
+                  const preColour = RATING_COLOURS[item.preControlRating as RiskLevel] ?? Colors.textMuted;
+                  const postColour = RATING_COLOURS[item.postControlRating as RiskLevel] ?? Colors.textMuted;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      style={styles.riskRow}
+                      onPress={() => router.push(`/(app)/risk-evaluations/${item.id}`)}
+                    >
+                      <View style={[styles.riskRowIcon, { backgroundColor: preColour + '18' }]}>
+                        <Feather name="alert-triangle" size={20} color={preColour} />
+                      </View>
+                      <View style={styles.riskRowBody}>
+                        <Text style={styles.riskRowTitle} numberOfLines={1}>
+                          {item.nonComplianceReference || item.hazardCategory || 'Risk Evaluation'}
+                        </Text>
+                        <Text style={styles.riskRowSub} numberOfLines={1}>{item.hazardDescription}</Text>
+                      </View>
+                      <View style={styles.riskRowPills}>
+                        <Text style={[styles.riskRowRating, { color: preColour }]}>{item.preControlRating || '–'}</Text>
+                        {item.postControlRating ? (
+                          <>
+                            <Feather name="arrow-right" size={11} color={Colors.textLight} />
+                            <Text style={[styles.riskRowRating, { color: postColour }]}>{item.postControlRating}</Text>
+                          </>
+                        ) : null}
+                      </View>
+                      <Feather name="chevron-right" size={20} color={Colors.textLight} style={{ marginLeft: 4 }} />
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
           )}
         </View>
 
@@ -430,4 +515,32 @@ const styles = StyleSheet.create({
   locationActionBtn: { padding: 4 },
   locationActionView: { fontSize: 14, fontWeight: '600', color: Colors.primary },
   locationActionRemove: { fontSize: 14, fontWeight: '600', color: Colors.danger },
+
+  riskCard: {
+    backgroundColor: Colors.card, borderRadius: 14, padding: 17,
+    borderWidth: 1, borderColor: Colors.border,
+  },
+  riskHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  riskHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  riskHeadText: { fontSize: 14, fontWeight: '700', color: Colors.primary, textTransform: 'uppercase', letterSpacing: 0.6 },
+  riskCount: { backgroundColor: Colors.border, borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 },
+  riskCountText: { fontSize: 13, fontWeight: '700', color: Colors.textMuted },
+  riskEmpty: { fontSize: 14, color: Colors.textLight },
+  riskSearch: {
+    backgroundColor: Colors.background, borderWidth: 1, borderColor: Colors.border, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10, fontSize: 16, color: Colors.text, marginBottom: 12,
+  },
+  riskRow: {
+    flexDirection: 'row', alignItems: 'center', paddingVertical: 10,
+    borderTopWidth: 1, borderTopColor: Colors.border,
+  },
+  riskRowIcon: {
+    width: 40, height: 40, borderRadius: 10, backgroundColor: Colors.background,
+    alignItems: 'center', justifyContent: 'center', marginRight: 12,
+  },
+  riskRowBody: { flex: 1 },
+  riskRowTitle: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 2 },
+  riskRowSub: { fontSize: 14, color: Colors.textMuted },
+  riskRowPills: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  riskRowRating: { fontSize: 13, fontWeight: '700' },
 });

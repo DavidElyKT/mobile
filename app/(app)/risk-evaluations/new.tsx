@@ -355,9 +355,17 @@ export default function NewRiskEvaluationScreen() {
     );
   }, [whatMightGoWrong, suggestions, librarySuggestions]);
 
-  const filteredMachines = subMachines.filter(m =>
-    m.machineNameReference.toLowerCase().includes(machineSearch.toLowerCase()),
-  );
+  const filteredMachines = subMachines.filter(m => {
+    const q = machineSearch.toLowerCase();
+    return (
+      (m.machineNameReference ?? '').toLowerCase().includes(q) ||
+      (m.machineCategory ?? '').toLowerCase().includes(q) ||
+      (m.machineUse ?? '').toLowerCase().includes(q) ||
+      (m.manufacturer ?? '').toLowerCase().includes(q) ||
+      (m.model ?? '').toLowerCase().includes(q) ||
+      (m.description ?? '').toLowerCase().includes(q)
+    );
+  });
   const selectedMachine = subMachines.find(m => m.id === selectedMachineId);
   const selectedMachineSummary = [
     selectedMachine?.machineCategory,
@@ -940,7 +948,7 @@ export default function NewRiskEvaluationScreen() {
             <Text style={styles.pickerTitle}>Select Sub-machine</Text>
             <TextInput
               style={styles.pickerSearch}
-              placeholder="Search by name..."
+              placeholder="Search by name, type…"
               placeholderTextColor={Colors.textLight}
               value={machineSearch}
               onChangeText={setMachineSearch}
