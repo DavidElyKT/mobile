@@ -25,6 +25,8 @@ import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
+import ControlReviewLocked from '@/components/ControlReviewLocked';
+import { useControlReview } from '@/context/ControlReviewContext';
 import MultiSelectPickerField from '@/components/MultiSelectPickerField';
 import { isDemoSite } from '@/utils/demoMode';
 import { getHazardDescriptionPrompt } from '@/utils/hazardDescriptionQuality';
@@ -43,6 +45,7 @@ export default function EditRiskEvaluationScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDatabase();
   const { isDemoMode } = useDemoMode();
+  const { isActive: isControlReviewActive } = useControlReview();
 
   const [evaluation, setEvaluation] = useState<RiskEvaluation | null>(null);
   const [blockedByDemoMode, setBlockedByDemoMode] = useState(false);
@@ -61,6 +64,9 @@ export default function EditRiskEvaluationScreen() {
   const [postControlSeverity, setPostControlSeverity] = useState<RiskLevel | null>(null);
   const [postControlProbability, setPostControlProbability] = useState<RiskLevel | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  // The photo before annotation, kept so AI control illustrations have a clean
+  // view of the machine. Null unless the assessor drew on it at some point.
+  const [photoOriginalUrl, setPhotoOriginalUrl] = useState<string | null>(null);
 
   const [iso13857Open, setIso13857Open] = useState(false);
 
@@ -137,6 +143,7 @@ export default function EditRiskEvaluationScreen() {
       setPostControlSeverity((ev.postControlSeverity as RiskLevel | null) ?? null);
       setPostControlProbability((ev.postControlProbability as RiskLevel | null) ?? null);
       setPhotoUrl(ev.photoUrl ?? null);
+      setPhotoOriginalUrl(ev.photoOriginalUrl ?? null);
       setSelectedMachineId(ev.machineId ?? null);
 
       let targetAssemblyId = ev.assemblyId;
@@ -184,12 +191,18 @@ export default function EditRiskEvaluationScreen() {
           ev.postControlScore = postRisk?.score ?? null;
           ev.postControlRating = postRisk?.rating ?? null;
           ev.photoUrl = photoUrl;
+          ev.photoOriginalUrl = photoOriginalUrl;
           ev.machineId = selectedMachineId;
           ev.isSynced = false;
         });
       });
       if (photoUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: photoUrl, collection: 'risk_evaluations', recordId: evaluation.id, field: 'photo_url' });
+      }
+      // Queued separately so the clean original reaches blob storage too — it is
+      // a second file on disk, not a variant the server can derive from the first.
+      if (photoOriginalUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: photoOriginalUrl, collection: 'risk_evaluations', recordId: evaluation.id, field: 'photo_original_url' });
       }
       router.back();
     } catch (e: any) {
@@ -200,10 +213,35 @@ export default function EditRiskEvaluationScreen() {
 
   if (loading) return <ActivityIndicator style={{ flex: 1 }} size="large" color={Colors.primary} />;
   if (blockedByDemoMode) return <DemoModeBlocked />;
+  if (isControlReviewActive) return <ControlReviewLocked />;
 
-  function handleAnnotationDone(uri: string) {
+
+  function handleAnnotationDone(uri: string, originalUri?: string) {
     setPendingAnnotation(null);
+    const previousPhoto = photoUrl;
     setPhotoUrl(uri);
+
+    // Which photo the original belongs to matters as much as keeping it.
+    if (uri === previousPhoto) {
+      // Skipped annotation on the stored photo — nothing changed, so the
+      // original on record is still the right one.
+      return;
+    }
+    if (!originalUri) {
+      // A new capture, left un-annotated. Any original held from the photo it
+      // replaced now describes a different machine view.
+      setPhotoOriginalUrl(null);
+      return;
+    }
+    if (originalUri === previousPhoto) {
+      // Re-annotating the stored photo. It is already marked up, so the clean
+      // copy taken the first time is the one to keep — this is the write-once
+      // rule the server also applies.
+      setPhotoOriginalUrl((prev) => prev ?? originalUri);
+      return;
+    }
+    // A new capture, annotated. Its own clean version is the original.
+    setPhotoOriginalUrl(originalUri);
   }
 
   function handleAnnotationCancel() {

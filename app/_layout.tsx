@@ -11,6 +11,7 @@ import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { DatabaseProvider } from '@/context/DatabaseContext';
 import { DemoModeProvider } from '@/context/DemoModeContext';
 import { AdminReviewProvider } from '@/context/AdminReviewContext';
+import { ControlReviewProvider } from '@/context/ControlReviewContext';
 
 // On web: if this page was opened as an OAuth popup, post the auth URL back to
 // the opener and close the popup immediately — before React fully renders.
@@ -62,12 +63,14 @@ function RootLayout() {
         <AuthProvider>
           <DemoModeProvider>
             <AdminReviewProvider>
+            <ControlReviewProvider>
             <AuthGate />
             <Stack screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(auth)" />
               <Stack.Screen name="(app)" />
               <Stack.Screen name="+not-found" />
             </Stack>
+            </ControlReviewProvider>
           </AdminReviewProvider>
           </DemoModeProvider>
         </AuthProvider>

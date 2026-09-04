@@ -1,6 +1,5 @@
 import {
-  View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert,
-  Pressable, Modal, Image, TextInput,
+  View, Text, StyleSheet, ScrollView, ActivityIndicator, Alert, Pressable, Modal, TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -24,6 +23,7 @@ import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
+import CachedImage from '@/components/CachedImage';
 
 export default function MachineDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -221,7 +221,7 @@ export default function MachineDetailScreen() {
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         {machine.pictureUrl ? (
           <View style={styles.heroWrap}>
-            <Image source={{ uri: machine.pictureUrl }} style={styles.heroImage} resizeMode="cover" />
+            <CachedImage uri={machine.pictureUrl} style={styles.heroImage} resizeMode="cover" />
             <Pressable style={styles.heroEditBtn} onPress={() => heroPhotoRef.current?.openCamera()}>
               <Feather name="camera" size={18} color="#fff" />
             </Pressable>

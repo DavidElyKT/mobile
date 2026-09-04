@@ -260,12 +260,73 @@ export const FloorPlanMarkersApi = {
 };
 
 // ---------------------------------------------------------------------------
+// Control review
+//
+// Every one of these needs connectivity, and that is deliberate rather than a
+// gap. Scope resolution and the customer's claim snapshot both happen
+// server-side at round start, and completing a round runs the completion gate —
+// none of which a device can do on its own. Recording a VERDICT, by contrast,
+// never comes through here: it is a local write pushed by sync, so it works on
+// a shop floor with no signal.
+// ---------------------------------------------------------------------------
+
+export type ControlReviewOutcome =
+  | 'Achieved'
+  | 'Partially achieved'
+  | 'Not achieved'
+  | 'Alternative control accepted'
+  | 'Asset removed / out of use'
+  | 'Unable to review';
+
+export const ControlReviewApi = {
+  listRounds: (token: string, siteId?: number) =>
+    request<any[]>(`/control-review/rounds${siteId ? `?site_id=${siteId}` : ''}`, token),
+
+  getRound: (token: string, roundId: number) =>
+    request<any>(`/control-review/rounds/${roundId}`, token),
+
+  startRound: (
+    token: string,
+    body: {
+      site_id: number;
+      review_date?: string;
+      name?: string | null;
+      scope_ratings?: string[];
+      scope_client_actioned_only?: boolean;
+      observations?: string | null;
+    },
+  ) =>
+    request<any>('/control-review/rounds', token, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  completeRound: (
+    token: string,
+    roundId: number,
+    body: { override?: boolean; override_reason?: string } = {},
+  ) =>
+    request<any>(`/control-review/rounds/${roundId}/complete`, token, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+};
+
+// ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
 
 export const UsersApi = {
   me: (token: string) =>
     request<any>('/users/me', token),
+  /**
+   * Which projects this user may sign off on. `all` is true for an
+   * Administrator; `project_ids` is the grant list for everyone else.
+   * Cached to AsyncStorage by AuthContext so the answer survives going
+   * offline — see reviewAccess.ts.
+   */
+  reviewAccess: (token: string) =>
+    request<{ all: boolean; project_ids: number[] }>('/users/me/review-access', token),
 };
 
 // ---------------------------------------------------------------------------

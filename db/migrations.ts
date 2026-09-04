@@ -22,6 +22,30 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 //            location_x, location_y to risk_evaluations.
 // v10 → v11: Add review_status, edited_reference, edited_hazard, edited_control to
 //             risk_evaluations (admin review workflow; synced from server).
+// v11 → v12: Add photo_original_url to risk_evaluations. Annotation burns the
+//             assessor's strokes into photo_url, so the clean image was being
+//             thrown away; AI control illustrations need it as the geometry
+//             reference, with the annotated one as the pointer. Null on every
+//             existing row and on any photo that was never annotated.
+// v12 → v13: Add control_review_rounds and control_reviews — the return visit that
+//             reviews whether the controls a report recommended were actually
+//             fitted. Both tables arrive empty and stay empty until a round is
+//             started server-side; the rows are pre-created there, one per
+//             in-scope evaluation, so the device only ever updates them.
+//             Also adds control_review_round_id to risk_evaluations, for a hazard
+//             first raised during such a visit (isOptional — null on every
+//             existing row and on everything from the normal PUWER flow).
+// v13 → v14: control_reviews.verified_* become actual_*, and the outcome
+//             'Unable to verify' becomes 'Unable to review'. "Verification" has
+//             a defined meaning in machinery safety and a control review is not
+//             it (see db/migrations/042_control_review_language.sql, which does
+//             the same rename server-side).
+//
+//             v13 shipped over the air, so the fleet already has verified_*
+//             columns and will never re-run v13's createTable — which is why
+//             v13 above still reads verified_* and must keep doing so. There is
+//             no rename step in WatermelonDB, so v14 ADDS the new columns and
+//             copies the values across.
 
 export default schemaMigrations({
   migrations: [
@@ -267,6 +291,113 @@ export default schemaMigrations({
             { name: 'framework_id', type: 'string', isOptional: true },
           ],
         }),
+      ],
+    },
+    {
+      toVersion: 12,
+      steps: [
+        addColumns({
+          table: 'risk_evaluations',
+          columns: [
+            { name: 'photo_original_url', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 13,
+      steps: [
+        createTable({
+          name: 'control_review_rounds',
+          columns: [
+            { name: 'server_id',   type: 'number', isOptional: true },
+            { name: 'site_id',     type: 'string' },
+            { name: 'round_no',    type: 'number' },
+            { name: 'name',        type: 'string', isOptional: true },
+            { name: 'review_date', type: 'string' },
+            { name: 'assessor_id', type: 'number', isOptional: true },
+            { name: 'status',      type: 'string' },
+            { name: 'scope_ratings', type: 'string', isOptional: true },
+            { name: 'scope_client_actioned_only', type: 'boolean', isOptional: true },
+            { name: 'scope_eval_ids', type: 'string', isOptional: true },
+            { name: 'observations',   type: 'string', isOptional: true },
+            { name: 'completed_at',   type: 'string', isOptional: true },
+            { name: 'is_synced',  type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'control_reviews',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'round_id',  type: 'string' },
+            { name: 'eval_id',   type: 'string' },
+            { name: 'outcome',            type: 'string', isOptional: true },
+            { name: 'actual_control',     type: 'string', isOptional: true },
+            { name: 'notes',              type: 'string', isOptional: true },
+            { name: 'photo_url',          type: 'string', isOptional: true },
+            { name: 'photo_original_url', type: 'string', isOptional: true },
+            // NOT actual_* — v13 shipped with these names and a migration
+            // that has run on a device can never be edited. v14 renames them.
+            { name: 'verified_severity',    type: 'string', isOptional: true },
+            { name: 'verified_probability', type: 'string', isOptional: true },
+            { name: 'verified_score',       type: 'number', isOptional: true },
+            { name: 'verified_rating',      type: 'string', isOptional: true },
+            { name: 'client_claim_action_id',      type: 'number', isOptional: true },
+            { name: 'client_claim_actioned',       type: 'boolean', isOptional: true },
+            { name: 'client_claim_action_type',    type: 'string', isOptional: true },
+            { name: 'client_claim_completed_by',   type: 'string', isOptional: true },
+            { name: 'client_claim_completed_date', type: 'string', isOptional: true },
+            { name: 'client_claim_notes',          type: 'string', isOptional: true },
+            { name: 'client_claim_photo_urls',     type: 'string', isOptional: true },
+            { name: 'review_status', type: 'string', isOptional: true },
+            { name: 'is_synced',  type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        addColumns({
+          table: 'risk_evaluations',
+          columns: [
+            { name: 'control_review_round_id', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 14,
+      steps: [
+        addColumns({
+          table: 'control_reviews',
+          columns: [
+            { name: 'actual_severity',    type: 'string', isOptional: true },
+            { name: 'actual_probability', type: 'string', isOptional: true },
+            { name: 'actual_score',       type: 'number', isOptional: true },
+            { name: 'actual_rating',      type: 'string', isOptional: true },
+          ],
+        }),
+        // Copy, not rename: WatermelonDB has no rename step, and the superseded
+        // columns cannot be dropped without rebuilding the table. They stay
+        // behind on upgraded devices, unread — schema.ts does not declare them,
+        // so nothing writes them and nothing syncs them.
+        //
+        // Raw SQL on purpose. These must NOT touch _status, _changed or
+        // updated_at: a migration that dirtied every row would push the whole
+        // worklist back to the server as an edit nobody made, and last-write-
+        // wins would let it overwrite a desktop correction.
+        unsafeExecuteSql(
+          'update control_reviews set actual_severity = verified_severity, ' +
+          'actual_probability = verified_probability, ' +
+          'actual_score = verified_score, ' +
+          'actual_rating = verified_rating;',
+        ),
+        // 'Unable to verify' is no longer an outcome the API accepts, so a row
+        // still holding it would be refused on its next push.
+        unsafeExecuteSql(
+          "update control_reviews set outcome = 'Unable to review' " +
+          "where outcome = 'Unable to verify';",
+        ),
       ],
     },
   ],

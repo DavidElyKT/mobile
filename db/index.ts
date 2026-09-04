@@ -5,6 +5,7 @@ import migrations from './migrations';
 import {
   Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
   ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
+  ControlReviewRound, ControlReview,
 } from './models';
 
 let _database: Database | null = null;
@@ -27,6 +28,7 @@ export function getDatabase(): Database {
     modelClasses: [
       Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
       ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
+      ControlReviewRound, ControlReview,
     ],
   });
 

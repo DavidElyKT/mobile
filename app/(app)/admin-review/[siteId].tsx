@@ -12,7 +12,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Image,
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -34,6 +33,7 @@ import Site from '@/db/models/Site.model';
 import Assembly from '@/db/models/Assembly.model';
 import Machine from '@/db/models/Machine.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
+import CachedImage from '@/components/CachedImage';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -183,7 +183,7 @@ function PhotoLightbox({ uri, visible, onClose }: { uri: string; visible: boolea
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.lightboxBackdrop} onPress={onClose}>
-        <Image source={{ uri }} style={styles.lightboxImage} resizeMode="contain" />
+        <CachedImage uri={uri} style={styles.lightboxImage} resizeMode="contain" />
         <Pressable style={styles.lightboxClose} onPress={onClose}>
           <Feather name="x" size={22} color="#fff" />
         </Pressable>
@@ -459,7 +459,7 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
         {/* Hero photo */}
         {ev.photoUrl ? (
           <Pressable onPress={() => onOpenPhoto(ev.photoUrl!)} style={styles.heroPhotoWrap}>
-            <Image source={{ uri: ev.photoUrl }} style={styles.heroPhoto} resizeMode="cover" />
+            <CachedImage uri={ev.photoUrl} style={styles.heroPhoto} resizeMode="cover" />
             <View style={styles.heroZoomHint}>
               <Feather name="zoom-in" size={14} color="#fff" />
               <Text style={styles.heroZoomText}>Tap to zoom</Text>
@@ -723,7 +723,7 @@ export default function AdminReviewScreen() {
   const navigation = useNavigation();
   const router = useRouter();
   const db = useDatabase();
-  const { user } = useAuth();
+  const { user, canReviewProject } = useAuth();
   const { exitReviewMode } = useAdminReview();
   const { forceFullSync, isSyncing } = useSync();
 
@@ -761,9 +761,16 @@ export default function AdminReviewScreen() {
   const [lightboxUri, setLightboxUri] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
+  // Per project since migration 047: an Administrator anywhere, or someone
+  // holding a reviewer grant on THIS project. Waits for the site record before
+  // deciding — site.serverId is what a grant is held against, and bouncing on
+  // a null id would throw a reviewer out while their own project loaded.
+  const canReviewThisProject = canReviewProject(site?.serverId ?? null);
   useEffect(() => {
-    if (user && user.role !== 'Administrator') router.replace('/(app)/home');
-  }, [user?.role]);
+    if (!user) return;
+    if (!site) return;
+    if (!canReviewThisProject) router.replace('/(app)/home');
+  }, [user?.role, site?.serverId, canReviewThisProject]);
 
   useEffect(() => {
     navigation.setOptions({ title: site?.customer ?? 'Admin Review' });

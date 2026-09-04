@@ -1,4 +1,6 @@
-import { View, Text, Image, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, RefreshControl, Modal, TextInput } from 'react-native';
+import {
+  View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, RefreshControl, Modal, TextInput,
+} from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
@@ -10,20 +12,31 @@ import { useRecord, useQuery } from '@/db/hooks';
 import { useAuth } from '@/context/AuthContext';
 import { useDemoMode } from '@/context/DemoModeContext';
 import { useAdminReview } from '@/context/AdminReviewContext';
+import { useControlReview } from '@/context/ControlReviewContext';
 import { SitesApi, FloorPlansApi } from '@/services/api';
 import { enqueuePhoto } from '@/services/photoQueue';
+import { touchSite } from '@/services/photoPrefetch';
 import { useSync } from '@/context/SyncContext';
 import { Colors } from '@/constants/Colors';
 import { isDemoSite } from '@/utils/demoMode';
 import { RATING_COLOURS, type RiskLevel } from '@/constants/risk';
 import { SkeletonDetailScreen } from '@/components/SkeletonLoader';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
+import CachedImage from '@/components/CachedImage';
+import OfflinePhotosCard from '@/components/OfflinePhotosCard';
 import Site from '@/db/models/Site.model';
 import Assembly from '@/db/models/Assembly.model';
 import ChecklistInstance from '@/db/models/ChecklistInstance.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
+
+// The two special modes each own a colour elsewhere in the app — teal for a
+// control review round, amber for admin review. The entry buttons carry the
+// same colour so the mode you are about to enter is recognisable before you
+// enter it.
+const CONTROL_REVIEW_ACCENT = '#0F766E';
+const ADMIN_REVIEW_ACCENT = '#B45309';
 
 function AssemblyCard({ asm, onPress }: { asm: Assembly; onPress: () => void }) {
   const db = useDatabase();
@@ -61,7 +74,7 @@ export default function SiteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const navigation = useNavigation();
-  const { getAccessToken, user } = useAuth();
+  const { getAccessToken, user, canReviewProject } = useAuth();
   const { isDemoMode } = useDemoMode();
   const db = useDatabase();
 
@@ -88,6 +101,16 @@ export default function SiteDetailScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const isAdmin = user?.role === 'Administrator';
   const { enterReviewMode } = useAdminReview();
+  const { enterControlReview, isActive: isControlReviewActive } = useControlReview();
+  // O1: a control review is recorded by an Administrator OR an Assessor, so it
+  // cannot ride on isAdmin the way deleting does.
+  const canControlReview = user?.role === 'Administrator' || user?.role === 'Assessor';
+  // Admin review is signing off somebody else's findings, which is per project
+  // since migration 047: an Administrator anywhere, or a reviewer grant on THIS
+  // project. Keyed on serverId because that is what a grant is held against —
+  // the local record id means nothing to the server. Deleting the project and
+  // deleting a floor plan stay on isAdmin: neither is reviewing.
+  const canAdminReview = canReviewProject(site?.serverId ?? null);
   const [toggling, setToggling] = useState(false);
   const [fabOpen, setFabOpen] = useState(false);
   const [checklistsCollapsed, setChecklistsCollapsed] = useState(false);
@@ -102,6 +125,12 @@ export default function SiteDetailScreen() {
   const [deletePhotos, setDeletePhotos] = useState(false);
   const hiddenByDemoMode = !!site && isDemoMode && !isDemoSite(site);
 
+  // Opening a project is what "least-recently-opened project" means — it is the
+  // order the offline photo cache evicts in.
+  useEffect(() => {
+    if (id) void touchSite(id);
+  }, [id]);
+
   useEffect(() => {
     if (!site) return;
     if (hiddenByDemoMode) {
@@ -110,29 +139,40 @@ export default function SiteDetailScreen() {
     }
     navigation.setOptions({
       title: site.customer,
+      // The two "special mode" entries used to live here, which crowded the
+      // centred header title and clipped the sync badge. They are now a labelled
+      // row under the banner (see modeRow below); the header keeps delete only.
       headerRight: () =>
         isAdmin ? (
-          <View style={{ flexDirection: 'row', gap: 4 }}>
-            <Pressable
-              style={{ padding: 8 }}
-              onPress={() => {
-                if (!site.serverId) {
-                  Alert.alert('Sync required', 'Sync this project before entering review mode.');
-                  return;
-                }
-                enterReviewMode(id);
-                router.push({ pathname: '/(app)/admin-review/[siteId]', params: { siteId: id } });
-              }}
-            >
-              <Feather name="shield" size={20} color="#fff" />
-            </Pressable>
-            <Pressable style={{ padding: 8 }} onPress={() => setConfirmingDelete(true)}>
-              <Feather name="trash-2" size={20} color="#fff" />
-            </Pressable>
-          </View>
+          <Pressable style={{ padding: 8 }} onPress={() => setConfirmingDelete(true)}>
+            <Feather name="trash-2" size={20} color="#fff" />
+          </Pressable>
         ) : null,
     });
-  }, [site?.customer, site?.serverId, isAdmin, hiddenByDemoMode]);
+  }, [site?.customer, site?.serverId, isAdmin, canControlReview, canAdminReview, hiddenByDemoMode]);
+
+  // Both special modes leave the normal capture flow, so both are gated on the
+  // project having reached the server: a round or a review keyed to a local-only
+  // site would have nothing to hang off.
+  function enterMode(mode: 'control' | 'admin') {
+    if (!site) return;
+    if (!site.serverId) {
+      Alert.alert(
+        'Sync required',
+        mode === 'control'
+          ? 'Sync this project before starting a control review.'
+          : 'Sync this project before entering review mode.',
+      );
+      return;
+    }
+    if (mode === 'control') {
+      enterControlReview(id);
+      router.push({ pathname: '/(app)/control-review/[siteId]', params: { siteId: id } });
+    } else {
+      enterReviewMode(id);
+      router.push({ pathname: '/(app)/admin-review/[siteId]', params: { siteId: id } });
+    }
+  }
 
   async function toggleStatus() {
     if (!site || toggling) return;
@@ -420,6 +460,40 @@ export default function SiteDetailScreen() {
           </Pressable>
         </View>
 
+        {/* The two modes that leave normal capture, kept side by side so the
+            switch reads as one decision. Control review is visible regardless
+            of site.status — reviewing a Completed project is the normal case
+            for a return visit, not the exception. */}
+        {(canControlReview || canAdminReview) && (
+          <View style={styles.modeRow}>
+            {canControlReview && (
+              <Pressable
+                style={[styles.modeBtn, styles.modeBtnControl]}
+                onPress={() => enterMode('control')}
+              >
+                <Feather name="check-square" size={18} color={CONTROL_REVIEW_ACCENT} />
+                <Text style={[styles.modeBtnText, { color: CONTROL_REVIEW_ACCENT }]}>
+                  Control Review
+                </Text>
+              </Pressable>
+            )}
+            {canAdminReview && (
+              <Pressable
+                style={[styles.modeBtn, styles.modeBtnAdmin]}
+                onPress={() => enterMode('admin')}
+              >
+                <Feather name="shield" size={18} color={ADMIN_REVIEW_ACCENT} />
+                <Text style={[styles.modeBtnText, { color: ADMIN_REVIEW_ACCENT }]}>
+                  Admin Review
+                </Text>
+              </Pressable>
+            )}
+          </View>
+        )}
+
+        {/* Offline photos — cached deliberately over wifi, never automatically */}
+        <OfflinePhotosCard siteId={id ?? ''} />
+
         {/* Floor Plans */}
         <Pressable style={styles.sectionHeader} onPress={() => setFloorPlansCollapsed(v => !v)}>
           <Text style={styles.sectionTitle}>Floor Plans</Text>
@@ -436,7 +510,7 @@ export default function SiteDetailScreen() {
                   onPress={() => router.push(`/(app)/floor-plans/${fp.id}`)}
                 >
                   {fp.imageUrl ? (
-                    <Image source={{ uri: fp.imageUrl }} style={styles.floorPlanThumb} />
+                    <CachedImage uri={fp.imageUrl} style={styles.floorPlanThumb} />
                   ) : (
                     <View style={styles.cardIcon}>
                       <Feather name="map" size={24} color={Colors.primary} />
@@ -658,15 +732,19 @@ export default function SiteDetailScreen() {
                 <Feather name="layers" size={22} color="#fff" />
               </View>
             </Pressable>
-            <Pressable
-              style={styles.fabMenuItem}
-              onPress={() => { setFabOpen(false); router.push({ pathname: '/(app)/risk-evaluations/new', params: { site_id: id } }); }}
-            >
-              <Text style={styles.fabMenuLabel}>Project Risk Evaluation</Text>
-              <View style={[styles.fabMenuBtn, { backgroundColor: Colors.danger }]}>
-                <Feather name="alert-triangle" size={22} color="#fff" />
-              </View>
-            </Pressable>
+            {/* Hidden in control review: the visit covers the findings the
+                report was issued with, it does not add to them. */}
+            {!isControlReviewActive ? (
+              <Pressable
+                style={styles.fabMenuItem}
+                onPress={() => { setFabOpen(false); router.push({ pathname: '/(app)/risk-evaluations/new', params: { site_id: id } }); }}
+              >
+                <Text style={styles.fabMenuLabel}>Project Risk Evaluation</Text>
+                <View style={[styles.fabMenuBtn, { backgroundColor: Colors.danger }]}>
+                  <Feather name="alert-triangle" size={22} color="#fff" />
+                </View>
+              </Pressable>
+            ) : null}
             <Pressable
               style={styles.fabMenuItem}
               onPress={() => { setFabOpen(false); router.push({ pathname: '/(app)/checklists/new', params: { site_id: id } }); }}
@@ -705,6 +783,14 @@ const styles = StyleSheet.create({
   },
   statusBtnCompleted: { backgroundColor: Colors.success + 'AA' },
   statusBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  modeRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 19, paddingTop: 14 },
+  modeBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 52, borderRadius: 12, borderWidth: 1.5, backgroundColor: Colors.card,
+  },
+  modeBtnControl: { borderColor: CONTROL_REVIEW_ACCENT },
+  modeBtnAdmin: { borderColor: ADMIN_REVIEW_ACCENT },
+  modeBtnText: { fontSize: 16, fontWeight: '700' },
   sectionHeader: { paddingHorizontal: 19, paddingTop: 24, paddingBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionTitle: { fontSize: 14, fontWeight: '700', color: Colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.8 },
   card: {

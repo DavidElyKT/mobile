@@ -10,3 +10,7 @@ export { default as RiskEvaluation } from './RiskEvaluation.model';
 export type { RiskLevel, HazardCategory } from './RiskEvaluation.model';
 export { default as FloorPlan } from './FloorPlan.model';
 export { default as FloorPlanMarker } from './FloorPlanMarker.model';
+export { default as ControlReviewRound } from './ControlReviewRound.model';
+export type { ControlReviewRoundStatus } from './ControlReviewRound.model';
+export { default as ControlReview } from './ControlReview.model';
+export type { ControlReviewOutcome } from './ControlReview.model';

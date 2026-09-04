@@ -27,6 +27,11 @@ export default class RiskEvaluation extends Model {
   // string on older records — use parseHazardCategories() from constants/risk to read.
   @field('hazard_category') declare hazardCategory: string | null;
   @field('photo_url') declare photoUrl: string | null;
+  // The same photo before annotation, set only when the assessor drew on it.
+  // Annotation flattens the strokes into photo_url, so without this the clean
+  // image is lost; AI control illustrations use it for the machine's geometry
+  // and photo_url to see where the assessor pointed. Write-once server-side.
+  @field('photo_original_url') declare photoOriginalUrl: string | null;
 
   @field('pre_control_severity') declare preControlSeverity: RiskLevel | null;
   @field('pre_control_probability') declare preControlProbability: RiskLevel | null;

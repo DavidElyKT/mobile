@@ -32,8 +32,17 @@ interface Props {
   visible: boolean;
   /** The local file URI of the photo to annotate. */
   uri: string | null;
-  /** Called with the (possibly annotated) local URI when the user saves. */
-  onDone: (localUri: string) => void;
+  /**
+   * Called with the (possibly annotated) local URI when the user saves.
+   *
+   * @param originalUri  The un-annotated image, passed only when the user
+   *   actually drew something. Saving flattens the strokes into the returned
+   *   image, so this is the only surviving clean copy — AI control illustrations
+   *   need it as the machine's geometry reference, with the annotated version
+   *   showing where the assessor pointed. Undefined on Skip, where the two
+   *   images would be identical.
+   */
+  onDone: (localUri: string, originalUri?: string) => void;
   /** Called when the user cancels, discarding the photo entirely. */
   onCancel: () => void;
 }
@@ -181,11 +190,14 @@ export default function PhotoAnnotationModal({ visible, uri, onDone, onCancel }:
     const capture = canvasRef.current.capture?.bind(canvasRef.current);
     if (!capture) { Alert.alert('Not ready', 'Capture is not ready yet — try again.'); return; }
     setSaving(true);
+    // Read before resetDrawing() clears it: whether any stroke was actually
+    // drawn decides if there is a distinct original worth keeping.
+    const wasAnnotated = paths.length > 0;
     try {
       const tempUri = await capture();
       const localUri = await saveLocally(tempUri);
       resetDrawing();
-      onDone(localUri);
+      onDone(localUri, wasAnnotated && uri ? uri : undefined);
     } catch (e: any) {
       Alert.alert('Save failed', e.message);
     } finally {

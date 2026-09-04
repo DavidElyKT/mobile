@@ -113,6 +113,13 @@ export default function NewMachineScreen() {
       skippable: true,
     },
     {
+      key: 'description',
+      type: 'multiline',
+      question: 'Anything else to note about this machine?',
+      placeholder: 'Optional description',
+      skippable: true,
+    },
+    {
       key: 'pictureUrl',
       type: 'photo',
       question: 'Take a photo of the machine',
@@ -204,6 +211,7 @@ export default function NewMachineScreen() {
         m.manufacturer = (wizardData.manufacturer || '').trim();
         m.model = (wizardData.model || '').trim();
         m.serialNumber = (wizardData.serialNumber || '').trim();
+        m.description = (wizardData.description || '').trim();
         m.pictureUrl = wizardData.pictureUrl || null;
         m.nameplatePhotoUrl = wizardData.nameplateUrl || null;
         m.isSynced = false;

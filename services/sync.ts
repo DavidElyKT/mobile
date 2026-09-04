@@ -39,6 +39,8 @@ export async function getCachedUserId(): Promise<number | null> {
 /** User-writable collections that can have pending (unsynced) records. */
 const WRITABLE_COLLECTIONS = [
   'sites',
+  'control_review_rounds',
+  'control_reviews',
   'floor_plans',
   'assemblies',
   'machines',
@@ -74,6 +76,8 @@ const TABLE_MAP: Record<string, string> = {
   questions:            'questions',
   floor_plans:          'floor_plans',
   floor_plan_markers:   'floor_plan_markers',
+  control_review_rounds: 'control_review_rounds',
+  control_reviews:       'control_reviews',
 };
 
 /**
@@ -83,6 +87,10 @@ const TABLE_MAP: Record<string, string> = {
  */
 const PUSH_ORDER = [
   'sites',
+  // A round and its verdicts precede risk_evaluations: the rows are pre-created
+  // server-side, so they already carry a serverId and only ever go up as updates.
+  'control_review_rounds',
+  'control_reviews',
   'floor_plans',
   'assemblies',
   'machines',
@@ -127,15 +135,45 @@ const FK_FIELDS: Record<string, Record<string, string>> = {
     checklist_id:  'checklist_instances',
     floor_plan_id: 'floor_plans',
   },
+  control_review_rounds: {
+    site_id: 'sites',
+  },
+  control_reviews: {
+    round_id: 'control_review_rounds',
+    eval_id:  'risk_evaluations',
+  },
 };
 
-/** Photo URL fields that must never be pushed with local file:// values. */
+/**
+ * Photo URL fields that must never be pushed with local file:// values, and
+ * whose record waits until they are uploaded. A hazard photo still sitting on
+ * the device means the record is not yet what the server should show.
+ */
 const PHOTO_FIELDS: Record<string, string[]> = {
   assemblies:          ['picture_url', 'nameplate_photo_url'],
   machines:            ['picture_url', 'nameplate_photo_url'],
   floor_plans:         ['image_url'],
   checklist_responses: ['photo_url'],
   risk_evaluations:    ['photo_url'],
+  // The control photo IS the evidence the control was fitted. A verdict
+  // that reached the server without it would look reviewed and prove nothing.
+  control_reviews:     ['photo_url'],
+};
+
+/**
+ * Photo fields that are simply OMITTED from the push while still a local file,
+ * rather than holding the whole record back.
+ *
+ * photo_original_url is a secondary input to AI control illustrations. Treating
+ * it like PHOTO_FIELDS would let a failed upload of a nice-to-have image block
+ * the risk evaluation — the actual safety finding — from ever reaching the
+ * server. Arriving a sync late is free: the server column is write-once, so the
+ * first real value still wins whenever it turns up, and omitting the key leaves
+ * whatever the server already has untouched.
+ */
+const DEFERRABLE_PHOTO_FIELDS: Record<string, string[]> = {
+  risk_evaluations: ['photo_original_url'],
+  control_reviews:  ['photo_original_url'],
 };
 
 /**
@@ -239,6 +277,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'hazard_description',
     'hazard_category',
     'photo_url',
+    'photo_original_url',
     'pre_control_severity',
     'pre_control_probability',
     'pre_control_score',
@@ -260,6 +299,47 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'created_at',
     'updated_at',
   ],
+  control_review_rounds: [
+    'site_id',
+    'round_no',
+    'name',
+    'review_date',
+    'assessor_id',
+    'status',
+    'scope_ratings',
+    'scope_client_actioned_only',
+    'scope_eval_ids',
+    'observations',
+    'completed_at',
+    'created_at',
+    'updated_at',
+  ],
+  control_reviews: [
+    'round_id',
+    'eval_id',
+    'outcome',
+    'actual_control',
+    'notes',
+    'photo_url',
+    'photo_original_url',
+    'actual_severity',
+    'actual_probability',
+    'actual_score',
+    'actual_rating',
+    'client_claim_action_id',
+    'client_claim_actioned',
+    'client_claim_action_type',
+    'client_claim_completed_by',
+    'client_claim_completed_date',
+    'client_claim_notes',
+    'client_claim_photo_urls',
+    // Pulled so the device can SHOW whether a verdict has been approved. The
+    // server refuses it on push (STRIP in api/sync/routes.py) — approving is an
+    // Administrator action through the approve endpoint, not a sync side effect.
+    'review_status',
+    'created_at',
+    'updated_at',
+  ],
   floor_plans: [
     'site_id',
     'name',
@@ -278,6 +358,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'updated_at',
   ],
 };
+
 
 // --------------------------------------------------------------------------
 // Pull — incremental: only records changed since last_pulled_at are fetched.
@@ -329,6 +410,11 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     questions:            await _buildMap('questions'),
     checklist_instances:  await _buildMap('checklist_instances'),
     floor_plans:          await _buildMap('floor_plans'),
+    // Parents of a control review verdict. risk_evaluations is a parent map for
+    // the first time here — without it every pulled verdict would lose its
+    // eval_id and the worklist would render as rows about nothing.
+    risk_evaluations:      await _buildMap('risk_evaluations'),
+    control_review_rounds: await _buildMap('control_review_rounds'),
   };
 
   // FK columns for each server table: column name → parent collection
@@ -342,6 +428,8 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     risk_evaluations:    { machine_id: 'machines', assembly_id: 'assemblies', site_id: 'sites', checklist_id: 'checklist_instances', floor_plan_id: 'floor_plans' },
     floor_plans:         { site_id: 'sites' },
     floor_plan_markers:  { floor_plan_id: 'floor_plans', assembly_id: 'assemblies', machine_id: 'machines' },
+    control_review_rounds: { site_id: 'sites' },
+    control_reviews:       { round_id: 'control_review_rounds', eval_id: 'risk_evaluations' },
   };
 
   // Resolve any integer FK values in a fields object to local UUIDs.
@@ -720,6 +808,8 @@ function _pkFor(table: string): string {
     questions:            'question_id',
     floor_plans:          'floor_plan_id',
     floor_plan_markers:   'marker_id',
+    control_review_rounds: 'round_id',
+    control_reviews:       'control_review_id',
   };
   return pkMap[table] ?? 'id';
 }
@@ -753,6 +843,7 @@ function _localToServer(
   const raw = record._raw;
   const fkFields = FK_FIELDS[table] ?? {};
   const allowed = new Set(SYNC_COLUMN_ALLOWLIST[table] ?? Object.keys(raw));
+  const deferrable = new Set(DEFERRABLE_PHOTO_FIELDS[table] ?? []);
 
   for (const [key, value] of Object.entries(raw)) {
     if (
@@ -763,6 +854,16 @@ function _localToServer(
       key === '_changed' ||
       key === '_status' ||
       key === 'is_library_item'  // read-only from mobile; only Administrators can set via desktop
+    ) continue;
+
+    // Still on the device. Sending the path would write a file:// string the
+    // server can never read — and into a write-once column, which would then
+    // reject the real URL when it does arrive. Omit it and let a later sync
+    // carry it, once the photo queue has turned it into a blob URL.
+    if (
+      deferrable.has(key) &&
+      typeof value === 'string' &&
+      value.startsWith('file://')
     ) continue;
 
     if (key in fkFields) {

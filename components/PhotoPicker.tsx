@@ -1,13 +1,11 @@
-import {
-  View, Text, StyleSheet, Pressable, Image, ActivityIndicator,
-  Alert,
-} from 'react-native';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, Alert } from 'react-native';
 import { useState, forwardRef, useImperativeHandle } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import { Feather } from '@expo/vector-icons';
 import { Colors } from '@/constants/Colors';
 import * as FileSystem from 'expo-file-system/legacy';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
+import CachedImage from '@/components/CachedImage';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,7 +19,12 @@ export interface PhotoPickerRef {
 interface Props {
   label: string;
   currentUrl: string | null;
-  onUploaded: (url: string) => void;
+  /**
+   * @param originalUrl  The un-annotated image, present only when the user drew
+   *   on the photo. Annotation flattens the strokes into `url`, so this is the
+   *   only clean copy left; callers must persist it alongside the photo.
+   */
+  onUploaded: (url: string, originalUrl?: string) => void;
   /**
    * When provided, the annotation modal is bypassed.
    * Instead, the photo is saved locally and this callback is called
@@ -104,10 +107,10 @@ const PhotoPicker = forwardRef<PhotoPickerRef, Props>(function PhotoPicker({ lab
   // Annotation callbacks
   // -------------------------------------------------------------------------
 
-  function handleAnnotationDone(localUri: string) {
+  function handleAnnotationDone(localUri: string, originalUri?: string) {
     setUploading(true);
     try {
-      onUploaded(localUri);
+      onUploaded(localUri, originalUri);
     } finally {
       setPendingUri(null);
       setUploading(false);
@@ -132,7 +135,7 @@ const PhotoPicker = forwardRef<PhotoPickerRef, Props>(function PhotoPicker({ lab
           </View>
         ) : currentUrl ? (
           <>
-            <Image source={{ uri: currentUrl }} style={styles.thumbnail} />
+            <CachedImage uri={currentUrl} style={styles.thumbnail} />
             <View style={styles.thumbOverlayRow}>
               <Pressable style={styles.thumbBtn} onPress={openCamera}>
                 <Feather name="camera" size={17} color="#fff" />

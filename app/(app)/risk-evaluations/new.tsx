@@ -27,6 +27,8 @@ import {
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
+import ControlReviewLocked from '@/components/ControlReviewLocked';
+import { useControlReview } from '@/context/ControlReviewContext';
 import MultiSelectPickerField from '@/components/MultiSelectPickerField';
 import { isDemoSite } from '@/utils/demoMode';
 import { getHazardDescriptionPrompt } from '@/utils/hazardDescriptionQuality';
@@ -52,6 +54,7 @@ export default function NewRiskEvaluationScreen() {
   const isProjectRiskEval = !!site_id && !assembly_id && !machine_id;
   const db = useDatabase();
   const { isDemoMode } = useDemoMode();
+  const { isActive: isControlReviewActive } = useControlReview();
 
   const [hazardTitle, setHazardTitle] = useState(question_number ?? '');
   const [whatMightGoWrong, setWhatMightGoWrong] = useState('');
@@ -63,6 +66,10 @@ export default function NewRiskEvaluationScreen() {
   const [postControlSeverity, setPostControlSeverity] = useState<RiskLevel | null>(null);
   const [postControlProbability, setPostControlProbability] = useState<RiskLevel | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  // The photo before annotation, kept so AI control illustrations have a clean
+  // view of the machine. Null unless the assessor actually drew on it.
+  const [photoOriginalUrl, setPhotoOriginalUrl] = useState<string | null>(null);
+  const wizardPhotoOriginalRef = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -275,15 +282,20 @@ export default function NewRiskEvaluationScreen() {
     }
   }
 
-  function handleAnnotationDone(annotatedUri: string) {
+  function handleAnnotationDone(annotatedUri: string, originalUri?: string) {
     const pending = pendingAnnotation;
     if (!pending) return;
     setPendingAnnotation(null);
     if (pending.source === 'wizard') {
+      // Held outside the wizard rather than injected as a second field: the
+      // wizard collects one value per question, and the original is not
+      // something the assessor answers — it is a by-product of annotating.
+      wizardPhotoOriginalRef.current = originalUri ?? null;
       setFocusModeOpen(true);
       setTimeout(() => wizardRef.current?.injectPhoto(pending.key, annotatedUri), 150);
     } else {
       setPhotoUrl(annotatedUri);
+      setPhotoOriginalUrl(originalUri ?? null);
     }
   }
 
@@ -319,6 +331,7 @@ export default function NewRiskEvaluationScreen() {
         ev.hazardousMovementTypes = serializeStringArray(wizardData.hazardousMovementTypes ?? []);
         ev.hazardCategory = serializeStringArray(wizardData.hazardCategories ?? []);
         ev.photoUrl = wizardData.photoUrl ?? null;
+        ev.photoOriginalUrl = wizardPhotoOriginalRef.current;
         ev.preControlSeverity = preControlSev;
         ev.preControlProbability = preControlProb;
         ev.preControlScore = preRiskResult?.score ?? null;
@@ -336,6 +349,12 @@ export default function NewRiskEvaluationScreen() {
     if (wizardData.photoUrl?.startsWith('file://')) {
       await enqueuePhoto({ localUri: wizardData.photoUrl, collection: 'risk_evaluations', recordId: newEval.id, field: 'photo_url' });
     }
+    // Queued separately so the clean original reaches blob storage too — it is a
+    // second file on disk, not a variant the server can derive from the first.
+    if (wizardPhotoOriginalRef.current?.startsWith('file://')) {
+      await enqueuePhoto({ localUri: wizardPhotoOriginalRef.current, collection: 'risk_evaluations', recordId: newEval.id, field: 'photo_original_url' });
+    }
+    wizardPhotoOriginalRef.current = null;
     // Wizard owns success state — no setSaved/setFocusModeOpen here.
   }
 
@@ -620,6 +639,7 @@ export default function NewRiskEvaluationScreen() {
           ev.hazardDescription = rawHazardText;
           ev.hazardCategory = serializeStringArray(hazardCategories);
           ev.photoUrl = photoUrl;
+          ev.photoOriginalUrl = photoOriginalUrl;
           ev.preControlSeverity = preControlSeverity;
           ev.preControlProbability = preControlProbability;
           ev.preControlScore = preRisk?.score ?? null;
@@ -637,6 +657,11 @@ export default function NewRiskEvaluationScreen() {
       if (photoUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: photoUrl, collection: 'risk_evaluations', recordId: newEval.id, field: 'photo_url' });
       }
+      // Queued separately so the clean original reaches blob storage too — it is
+      // a second file on disk, not a variant the server can derive from the first.
+      if (photoOriginalUrl?.startsWith('file://')) {
+        await enqueuePhoto({ localUri: photoOriginalUrl, collection: 'risk_evaluations', recordId: newEval.id, field: 'photo_original_url' });
+      }
 
       setSaved(true);
     } catch (e: any) {
@@ -647,6 +672,14 @@ export default function NewRiskEvaluationScreen() {
   }
 
   if (blockedByDemoMode) return <DemoModeBlocked />;
+  // No new evaluations from inside a control review. The D6 new-hazard path is
+  // its own explicit route and is not built in this phase.
+  if (isControlReviewActive) {
+    return (
+      <ControlReviewLocked reason="Raising a new hazard during a control review is not available in this build. Record the verdicts you came for; a new finding needs a fresh assessment." />
+    );
+  }
+
 
   if (saved) {
     return (

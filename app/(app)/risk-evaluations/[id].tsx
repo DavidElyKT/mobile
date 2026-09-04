@@ -1,4 +1,4 @@
-﻿import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Image, Modal, Alert } from 'react-native';
+﻿import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Pressable, Modal, Alert } from 'react-native';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
@@ -18,6 +18,7 @@ import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
+import CachedImage from '@/components/CachedImage';
 
 export default function RiskEvaluationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -183,7 +184,7 @@ export default function RiskEvaluationDetailScreen() {
         ) : null}
 
         {evaluation.photoUrl ? (
-          <Image source={{ uri: evaluation.photoUrl }} style={styles.photo} resizeMode="cover" />
+          <CachedImage uri={evaluation.photoUrl} style={styles.photo} resizeMode="cover" />
         ) : null}
 
         <RiskBlock

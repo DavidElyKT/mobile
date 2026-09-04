@@ -11,6 +11,13 @@ import {
   signIn as authSignIn,
 } from '@/services/auth';
 import { UsersApi } from '@/services/api';
+import {
+  ReviewAccess,
+  canReviewProject as canReview,
+  clearReviewAccess,
+  loadReviewAccess,
+  refreshReviewAccess,
+} from '@/services/reviewAccess';
 
 interface AuthContextValue {
   tokens: AuthTokens | null;
@@ -20,6 +27,19 @@ interface AuthContextValue {
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   getAccessToken: () => Promise<string | null>;
+  /**
+   * Whether this user may sign off on one project's work: approve its risk
+   * evaluations, send them back for revision, approve its control review
+   * verdicts. Per project since migration 047, so ask this rather than
+   * comparing the role.
+   *
+   * Takes the SERVER site id (`site.serverId`), not the local WatermelonDB
+   * record id — grants are held server-side against the real project.
+   *
+   * Does NOT cover releasing a control review round to the customer, or
+   * reopening or rescoping one. Those stayed Administrator-only.
+   */
+  canReviewProject: (serverSiteId: number | null | undefined) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -46,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tokens, setTokens] = useState<AuthTokens | null>(null);
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [reviewAccess, setReviewAccess] = useState<ReviewAccess | null>(null);
 
   const redirectUri = AuthSession.makeRedirectUri({ scheme: 'puwerapp', path: 'auth' });
 
@@ -79,11 +100,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (active.idToken) {
       setUser(tokenProfile);
     }
+    let profile = tokenProfile;
     try {
       const dbUser = await UsersApi.me(active.accessToken);
-      setUser(mergeUserProfile(tokenProfile, dbUser));
+      profile = mergeUserProfile(tokenProfile, dbUser);
+      setUser(profile);
     } catch {
       if (tokenProfile) setUser(tokenProfile);
+    }
+
+    // Show the cached answer first so a reviewer opening the app on site has
+    // their controls immediately, then refresh in the background. A failed
+    // refresh leaves the cache alone rather than clearing it.
+    const oid = profile?.oid ?? '';
+    if (oid) {
+      setReviewAccess(await loadReviewAccess(oid));
+      void refreshReviewAccess(oid, active.accessToken).then(setReviewAccess);
     }
   }
 
@@ -95,9 +127,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   async function signOut() {
+    // The cache is keyed by oid, so signing out clears this user's entry
+    // rather than trusting the next sign-in to overwrite it — a shared
+    // tablet must never hand one person's authority to the next.
+    if (user?.oid) await clearReviewAccess(user.oid);
     await clearTokens();
     setTokens(null);
     setUser(null);
+    setReviewAccess(null);
   }
 
   async function getAccessToken(): Promise<string | null> {
@@ -126,6 +163,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signIn,
         signOut,
         getAccessToken,
+        canReviewProject: (serverSiteId) =>
+          canReview(user?.role, reviewAccess, serverSiteId),
       }}
     >
       {children}

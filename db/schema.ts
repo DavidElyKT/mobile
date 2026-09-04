@@ -12,9 +12,18 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 // v9: added checklist_frameworks table; added framework_id to question_sets and checklist_instances.
 // v10: added floor_plans and floor_plan_markers tables; added floor_plan_id/location_x/location_y to risk_evaluations.
 // v11: added review_status, edited_reference, edited_hazard, edited_control to risk_evaluations (admin review workflow).
+// v12: added photo_original_url to risk_evaluations (un-annotated hazard photo, kept for AI control illustrations).
+// v13: added control_review_rounds and control_reviews (the return visit that reviews
+//      controls were actually fitted); added control_review_round_id to risk_evaluations
+//      for hazards first raised during such a visit.
+// v14: control_reviews.verified_* renamed to actual_*. The superseded columns are
+//      absent here on purpose — a fresh install never creates them, and an
+//      upgraded device keeps them physically (WatermelonDB cannot drop a column)
+//      but never reads or writes them, because this file is what defines the
+//      fields. See migrations.ts v14 for why v13 above cannot simply be edited.
 
 export default appSchema({
-  version: 11,
+  version: 14,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -182,6 +191,11 @@ export default appSchema({
         { name: 'hazard_description', type: 'string' },
         { name: 'hazard_category', type: 'string', isOptional: true },
         { name: 'photo_url', type: 'string', isOptional: true },
+        // The hazard photo before the assessor drew on it. Annotation flattens
+        // strokes into photo_url, so this is the only surviving clean copy —
+        // AI control illustrations need it as the machine's geometry reference.
+        // Null when the photo was never annotated.
+        { name: 'photo_original_url', type: 'string', isOptional: true },
         { name: 'pre_control_severity', type: 'string', isOptional: true },
         { name: 'pre_control_probability', type: 'string', isOptional: true },
         { name: 'pre_control_score', type: 'number', isOptional: true },
@@ -200,7 +214,72 @@ export default appSchema({
         { name: 'edited_reference', type: 'string', isOptional: true },
         { name: 'edited_hazard',    type: 'string', isOptional: true },
         { name: 'edited_control',   type: 'string', isOptional: true },
+        // Set only on a hazard first raised during a control review, so the
+        // control review report can list it as a new finding instead of it
+        // joining the original assessment's list silently. Null on every
+        // evaluation from the normal PUWER flow.
+        { name: 'control_review_round_id', type: 'string', isOptional: true },
         { name: 'is_synced', type: 'boolean' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'control_review_rounds',
+      columns: [
+        { name: 'server_id',   type: 'number', isOptional: true },
+        { name: 'site_id',     type: 'string' },
+        { name: 'round_no',    type: 'number' },
+        { name: 'name',        type: 'string', isOptional: true },
+        { name: 'review_date', type: 'string' },
+        { name: 'assessor_id', type: 'number', isOptional: true },
+        { name: 'status',      type: 'string' },   // 'In Progress' | 'Complete' | 'Abandoned'
+        // The rating filter the round was started with, e.g. '["High","Severe"]',
+        // and the frozen worklist it resolved to, e.g. '[4821,4822]'. Both are
+        // server-owned: the device reads them to render scope and progress and
+        // never writes them back, or a completion count would mean nothing.
+        { name: 'scope_ratings',   type: 'string', isOptional: true },
+        { name: 'scope_client_actioned_only', type: 'boolean', isOptional: true },
+        { name: 'scope_eval_ids',  type: 'string', isOptional: true },
+        { name: 'observations',    type: 'string', isOptional: true },
+        { name: 'completed_at',    type: 'string', isOptional: true },
+        { name: 'is_synced',  type: 'boolean' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'control_reviews',
+      columns: [
+        { name: 'server_id', type: 'number', isOptional: true },
+        { name: 'round_id',  type: 'string' },
+        { name: 'eval_id',   type: 'string' },
+        // Null until the assessor records something: the row exists from round
+        // start so the worklist is a list of records, not a client-side join.
+        { name: 'outcome',            type: 'string', isOptional: true },
+        { name: 'actual_control',     type: 'string', isOptional: true },
+        { name: 'notes',              type: 'string', isOptional: true },
+        { name: 'photo_url',          type: 'string', isOptional: true },
+        { name: 'photo_original_url', type: 'string', isOptional: true },
+        { name: 'actual_severity',    type: 'string', isOptional: true },
+        { name: 'actual_probability', type: 'string', isOptional: true },
+        // Written by the server from severity + probability on every push. Held
+        // locally only so the card can show a rating offline.
+        { name: 'actual_score',       type: 'number', isOptional: true },
+        { name: 'actual_rating',      type: 'string', isOptional: true },
+        // The customer's portal claim as it stood when the round started. This
+        // snapshot is why client_actions is not synced: it is an insert-only log
+        // that grows without bound, and every sync pulls every row of every
+        // synced table.
+        { name: 'client_claim_action_id',      type: 'number', isOptional: true },
+        { name: 'client_claim_actioned',       type: 'boolean', isOptional: true },
+        { name: 'client_claim_action_type',    type: 'string', isOptional: true },
+        { name: 'client_claim_completed_by',   type: 'string', isOptional: true },
+        { name: 'client_claim_completed_date', type: 'string', isOptional: true },
+        { name: 'client_claim_notes',          type: 'string', isOptional: true },
+        { name: 'client_claim_photo_urls',     type: 'string', isOptional: true },
+        { name: 'review_status', type: 'string', isOptional: true }, // 'Pending' | 'Approved'
+        { name: 'is_synced',  type: 'boolean' },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
       ],

@@ -1,13 +1,12 @@
 import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import {
-  Modal, View, Text, TextInput, StyleSheet, Pressable,
-  Animated, KeyboardAvoidingView, Platform, ScrollView,
-  ActivityIndicator, Image,
+  Modal, View, Text, TextInput, StyleSheet, Pressable, Animated, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import PhotoPicker from '@/components/PhotoPicker';
 import { RATING_COLOURS, type RiskLevel } from '@/constants/risk';
+import CachedImage from '@/components/CachedImage';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -496,7 +495,7 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
             <View style={styles.card}>
               {photoUrl ? (
                 <>
-                  <Image source={{ uri: photoUrl }} style={styles.photoPreview} resizeMode="cover" />
+                  <CachedImage uri={photoUrl} style={styles.photoPreview} resizeMode="cover" />
                   <View style={styles.photoRetakeRow}>
                     <Pressable style={styles.photoRetakeBtn} onPress={() => onPhotoRequest('camera', def.key)}>
                       <Feather name="camera" size={15} color={DK.textMuted} />

@@ -1,5 +1,5 @@
 import {
-  View, Text, TextInput, SectionList, StyleSheet, Pressable, ActivityIndicator, Alert, Modal, Image, RefreshControl,
+  View, Text, TextInput, SectionList, StyleSheet, Pressable, ActivityIndicator, Alert, Modal, RefreshControl,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -10,6 +10,7 @@ import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeabl
 import { useRecord, useQuery } from '@/db/hooks';
 import { useAuth } from '@/context/AuthContext';
 import { useDemoMode } from '@/context/DemoModeContext';
+import { useControlReview } from '@/context/ControlReviewContext';
 import { AssembliesApi, MachinesApi, FloorPlanMarkersApi } from '@/services/api';
 import { useSync } from '@/context/SyncContext';
 import EmptyState from '@/components/EmptyState';
@@ -25,6 +26,7 @@ import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
+import CachedImage from '@/components/CachedImage';
 
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -32,6 +34,7 @@ export default function AssetDetailScreen() {
   const navigation = useNavigation();
   const { getAccessToken } = useAuth();
   const { isDemoMode } = useDemoMode();
+  const { isActive: isControlReviewActive } = useControlReview();
   const db = useDatabase();
 
   const assembly = useRecord<Assembly>(db.get<Assembly>('assemblies'), id);
@@ -290,7 +293,7 @@ export default function AssetDetailScreen() {
     return (
       <>
         {assembly!.pictureUrl ? (
-          <Image source={{ uri: assembly!.pictureUrl }} style={styles.heroImage} resizeMode="cover" />
+          <CachedImage uri={assembly!.pictureUrl} style={styles.heroImage} resizeMode="cover" />
         ) : null}
         {assembly!.description ? <Text style={styles.desc}>{assembly!.description}</Text> : null}
         <View style={styles.badgeRow}>
@@ -329,7 +332,7 @@ export default function AssetDetailScreen() {
               </View>
             ) : null}
             {assembly!.nameplatePhotoUrl ? (
-              <Image source={{ uri: assembly!.nameplatePhotoUrl }} style={styles.nameplateImage} resizeMode="cover" />
+              <CachedImage uri={assembly!.nameplatePhotoUrl} style={styles.nameplateImage} resizeMode="cover" />
             ) : null}
           </View>
         ) : null}
@@ -393,8 +396,11 @@ export default function AssetDetailScreen() {
     data: collapsed['riskEvals'] ? [] : filteredRiskEvals,
     empty: riskEvalSearch ? 'No matches.' : null,
     emptyState: riskEvalSearch ? null : (
-      <EmptyState icon="alert-triangle" message="No risk evaluations recorded." actionLabel="Add Risk Evaluation"
-        onAction={() => router.push({ pathname: '/(app)/risk-evaluations/new', params: { assembly_id: id } })} />
+      <EmptyState icon="alert-triangle" message="No risk evaluations recorded."
+        actionLabel={isControlReviewActive ? undefined : 'Add Risk Evaluation'}
+        onAction={isControlReviewActive
+          ? undefined
+          : () => router.push({ pathname: '/(app)/risk-evaluations/new', params: { assembly_id: id } })} />
     ),
     searchable: true, searchValue: riskEvalSearch, onSearchChange: setRiskEvalSearch,
     searchPlaceholder: 'Search hazards or sub-machine…',
@@ -577,14 +583,17 @@ export default function AssetDetailScreen() {
                   </View>
                 </Pressable>
               ) : null}
-              <Pressable style={styles.fabMenuItem}
-                onPress={() => { setFabOpen(false); router.push({ pathname: '/(app)/risk-evaluations/new', params: { assembly_id: id } }); }}
-              >
-                <Text style={styles.fabMenuLabel}>Risk Evaluation</Text>
-                <View style={[styles.fabMenuBtn, { backgroundColor: Colors.danger }]}>
-                  <Feather name="alert-triangle" size={22} color="#fff" />
-                </View>
-              </Pressable>
+              {/* Hidden in control review — see ControlReviewLocked. */}
+              {!isControlReviewActive ? (
+                <Pressable style={styles.fabMenuItem}
+                  onPress={() => { setFabOpen(false); router.push({ pathname: '/(app)/risk-evaluations/new', params: { assembly_id: id } }); }}
+                >
+                  <Text style={styles.fabMenuLabel}>Risk Evaluation</Text>
+                  <View style={[styles.fabMenuBtn, { backgroundColor: Colors.danger }]}>
+                    <Feather name="alert-triangle" size={22} color="#fff" />
+                  </View>
+                </Pressable>
+              ) : null}
               <Pressable style={styles.fabMenuItem}
                 onPress={() => { setFabOpen(false); router.push({ pathname: '/(app)/checklists/new', params: { assembly_id: id } }); }}
               >

@@ -19,6 +19,7 @@ import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 import Assembly from '@/db/models/Assembly.model';
 import Machine from '@/db/models/Machine.model';
+import CachedImage, { useCachedUri } from '@/components/CachedImage';
 
 function isPdf(url: string | null | undefined): boolean {
   return (url?.split('?')[0].toLowerCase().endsWith('.pdf')) ?? false;
@@ -132,19 +133,23 @@ export default function FloorPlanEditorScreen() {
     });
   }, [plan?.name]);
 
+  // Sized from the cached copy when there is one: Image.getSize on a blob URL
+  // needs a signal, and without a ratio the map never gets a height.
+  const planImageUri = useCachedUri(plan?.imageUrl);
+
   useEffect(() => {
-    if (!plan?.imageUrl) return;
-    if (isPdf(plan.imageUrl)) {
+    if (!planImageUri) return;
+    if (isPdf(planImageUri)) {
       // A4 portrait ratio — PDF dimensions aren't available client-side
       setImageAspectRatio(1 / Math.SQRT2);
       return;
     }
     Image.getSize(
-      plan.imageUrl,
+      planImageUri,
       (w, h) => setImageAspectRatio(w / h),
       () => setImageAspectRatio(1),
     );
-  }, [plan?.imageUrl]);
+  }, [planImageUri]);
 
   useEffect(() => {
     if (imageAspectRatio) setMapHeight(mapWidth / imageAspectRatio);
@@ -459,8 +464,8 @@ export default function FloorPlanEditorScreen() {
                 scrollEventThrottle={16}
               >
                 <Pressable onPress={handleMapTap} style={{ width: mapWidth, height: mapHeight || 200 }}>
-                  <Image
-                    source={{ uri: plan.imageUrl }}
+                  <CachedImage
+                    uri={plan.imageUrl}
                     style={{ width: mapWidth, height: mapHeight || 200 }}
                     resizeMode="stretch"
                   />
