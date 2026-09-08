@@ -5,6 +5,7 @@ import { Feather } from '@expo/vector-icons';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
 import { Q } from '@nozbe/watermelondb';
 import { getCachedUserId } from '@/services/sync';
+import { resolveJobSiteId } from '@/services/jobContext';
 import { Colors } from '@/constants/Colors';
 import ChecklistFramework from '@/db/models/ChecklistFramework.model';
 import QuestionSet from '@/db/models/QuestionSet.model';
@@ -80,6 +81,9 @@ export default function NewChecklistScreen() {
     try {
       const assessorId = (await getCachedUserId()) ?? 0;
       const today = new Date().toISOString().split('T')[0];
+      // The job this checklist is being done under, which for a re-assessed
+      // asset is not the job that created it — see services/jobContext.
+      const jobSiteId = await resolveJobSiteId(db, { assemblyId: assembly_id, siteId: site_id });
 
       // Collect server IDs for the selected question sets (for offline question resolution)
       const selectedSets = questionSets.filter(s => selectedSetIds.includes(s.id));
@@ -88,7 +92,7 @@ export default function NewChecklistScreen() {
       const newChecklist = await db.write(async () => {
         return await db.get<ChecklistInstance>('checklist_instances').create(cl => {
           cl.assemblyId = assembly_id ?? null;
-          cl.siteId = site_id ?? null;
+          cl.siteId = jobSiteId;
           cl.assessorId = assessorId;
           cl.date = today;
           cl.status = 'In Progress';

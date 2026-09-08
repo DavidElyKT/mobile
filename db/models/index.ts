@@ -1,3 +1,8 @@
+export { default as Customer } from './Customer.model';
+export { default as CustomerSite } from './CustomerSite.model';
+export { default as SiteArea } from './SiteArea.model';
+export { default as Assessment } from './Assessment.model';
+export type { AssessmentStatus } from './Assessment.model';
 export { default as Site } from './Site.model';
 export { default as Assembly } from './Assembly.model';
 export { default as Machine } from './Machine.model';

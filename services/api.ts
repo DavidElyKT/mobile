@@ -334,13 +334,22 @@ export const UsersApi = {
 // ---------------------------------------------------------------------------
 
 export const SyncApi = {
-  pull: (token: string, lastPulledAt?: string) =>
+  pull: (token: string, lastPulledAt?: string, fullTables: string[] = []) =>
     request<{
       changes: Record<string, { created: any[]; updated: any[]; deleted: any[] }>;
       current_ids: Record<string, number[]>;
       timestamp: number;
     }>(
-      `/sync/pull${lastPulledAt ? `?last_pulled_at=${encodeURIComponent(lastPulledAt)}` : ''}`,
+      (() => {
+        const params = new URLSearchParams();
+        if (lastPulledAt) params.set('last_pulled_at', lastPulledAt);
+        // Tables this device has never held. The pull is incremental, so
+        // without this a table added to sync arrives empty for ever on any
+        // device that has synced before — see services/sync.ts.
+        if (fullTables.length) params.set('full_tables', fullTables.join(','));
+        const query = params.toString();
+        return `/sync/pull${query ? `?${query}` : ''}`;
+      })(),
       token,
     ),
 

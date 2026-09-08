@@ -3,6 +3,7 @@ import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
 import schema from './schema';
 import migrations from './migrations';
 import {
+  Customer, CustomerSite, SiteArea, Assessment,
   Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
   ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
   ControlReviewRound, ControlReview,
@@ -26,6 +27,7 @@ export function getDatabase(): Database {
   _database = new Database({
     adapter,
     modelClasses: [
+      Customer, CustomerSite, SiteArea, Assessment,
       Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
       ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
       ControlReviewRound, ControlReview,

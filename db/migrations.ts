@@ -46,6 +46,20 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 //             v13 above still reads verified_* and must keep doing so. There is
 //             no rename step in WatermelonDB, so v14 ADDS the new columns and
 //             copies the values across.
+// v14 → v15: The customer spine arrives on the device — customers,
+//             customer_sites, site_areas and assessments — with customer_id on
+//             sites, customer_site_id / area_id / status on assemblies and
+//             status on machines. Phase 3 of the customer-centric restructure.
+//
+//             Every column added to an existing table is OPTIONAL, and all four
+//             tables arrive empty: the next pull fills them, and until it has,
+//             an upgraded device behaves exactly as it did before. That matters
+//             because an assessor can upgrade the app in a car park and be
+//             offline for the rest of the day.
+//
+//             No data is copied and nothing is rewritten. A repeat round does
+//             not re-parent an asset — it records another episode against the
+//             same one — so there is nothing here to migrate.
 
 export default schemaMigrations({
   migrations: [
@@ -398,6 +412,80 @@ export default schemaMigrations({
           "update control_reviews set outcome = 'Unable to review' " +
           "where outcome = 'Unable to verify';",
         ),
+      ],
+    },
+    {
+      toVersion: 15,
+      steps: [
+        createTable({
+          name: 'customers',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'customer_name', type: 'string' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'customer_sites',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'customer_id', type: 'string' },
+            { name: 'site_name', type: 'string' },
+            { name: 'address', type: 'string', isOptional: true },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'site_areas',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'customer_site_id', type: 'string' },
+            { name: 'area_name', type: 'string' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'assessments',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'site_id', type: 'string', isOptional: true },
+            { name: 'assembly_id', type: 'string', isOptional: true },
+            { name: 'machine_id', type: 'string', isOptional: true },
+            { name: 'service_type_id', type: 'number', isOptional: true },
+            { name: 'assessment_date', type: 'string' },
+            { name: 'assessor_id', type: 'number', isOptional: true },
+            { name: 'status', type: 'string' },
+            { name: 'is_synced', type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        addColumns({
+          table: 'sites',
+          columns: [
+            { name: 'customer_id', type: 'string', isOptional: true },
+            // Local only — see schema.ts. The server's `sites` has neither.
+            { name: 'customer_site_id', type: 'string', isOptional: true },
+            { name: 'area_id', type: 'string', isOptional: true },
+          ],
+        }),
+        addColumns({
+          table: 'assemblies',
+          columns: [
+            { name: 'customer_site_id', type: 'string', isOptional: true },
+            { name: 'area_id', type: 'string', isOptional: true },
+            { name: 'status', type: 'string', isOptional: true },
+          ],
+        }),
+        addColumns({
+          table: 'machines',
+          columns: [
+            { name: 'status', type: 'string', isOptional: true },
+          ],
+        }),
       ],
     },
   ],

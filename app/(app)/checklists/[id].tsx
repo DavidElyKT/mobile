@@ -637,7 +637,11 @@ export default function ChecklistDetailScreen() {
                   >
                     <Feather name="alert-triangle" size={14} color={Colors.danger} />
                     <Text style={styles.addRiskText}>
-                      {checklist.siteId ? '+ Add Project Risk Evaluation' : '+ Add Risk Evaluation'}
+                      {/* The discriminator is the ABSENCE of an asset, not the
+                          presence of a job: as of Phase 3 an asset checklist
+                          carries the job on site_id too, so reading site_id
+                          here would call every hazard a project one. */}
+                      {checklist.assemblyId ? '+ Add Risk Evaluation' : '+ Add Project Risk Evaluation'}
                     </Text>
                   </Pressable>
                 )}

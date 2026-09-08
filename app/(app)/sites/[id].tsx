@@ -2,7 +2,7 @@ import {
   View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Alert, RefreshControl, Modal, TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -26,6 +26,7 @@ import CachedImage from '@/components/CachedImage';
 import OfflinePhotosCard from '@/components/OfflinePhotosCard';
 import Site from '@/db/models/Site.model';
 import Assembly from '@/db/models/Assembly.model';
+import Assessment from '@/db/models/Assessment.model';
 import ChecklistInstance from '@/db/models/ChecklistInstance.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
@@ -79,12 +80,37 @@ export default function SiteDetailScreen() {
   const db = useDatabase();
 
   const site = useRecord<Site>(db.get<Site>('sites'), id);
-  const assemblies = useQuery<Assembly>(
-    db.get<Assembly>('assemblies').query(Q.where('site_id', id ?? '')),
+
+  // A job's asset register is what it PRODUCED plus what it re-assessed. A
+  // repeat round produces nothing of its own — it ticks assets that already
+  // exist and records an episode against each — so filtering on site_id alone
+  // would show an empty project (Phase 3; the same widening the API's
+  // job_assets_where does server-side).
+  const episodes = useQuery<Assessment>(
+    db.get<Assessment>('assessments').query(Q.where('site_id', id ?? '')),
+    [id],
   );
+  const scopedAssemblyIds = useMemo(
+    () => Array.from(new Set(episodes.map(e => e.assemblyId).filter(Boolean) as string[])),
+    [episodes],
+  );
+  const assemblies = useQuery<Assembly>(
+    db.get<Assembly>('assemblies').query(
+      Q.or(
+        Q.where('site_id', id ?? ''),
+        Q.where('id', Q.oneOf(scopedAssemblyIds)),
+      ),
+    ),
+    [id, scopedAssemblyIds.join(',')],
+  );
+  // Project-level checklists only. Asset checklists carry the job on `site_id`
+  // too as of Phase 3 — that is how a repeat round's work is filed under the
+  // right project — so the discriminator is the ABSENCE of an assembly, exactly
+  // as it already is for the evaluations below.
   const checklists = useQuery<ChecklistInstance>(
     db.get<ChecklistInstance>('checklist_instances').query(
       Q.where('site_id', id ?? ''),
+      Q.where('assembly_id', null),
     ),
   );
   const riskEvals = useQuery<RiskEvaluation>(

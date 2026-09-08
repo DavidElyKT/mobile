@@ -27,6 +27,50 @@ import { SyncApi, UsersApi } from './api';
 import { processPhotoQueue } from './photoQueue';
 
 const LAST_PULLED_AT_KEY = 'sync_last_pulled_at';
+/**
+ * Tables this device has pulled IN FULL at least once.
+ *
+ * THE BUG THIS FIXES, because it is not obvious from either side alone. The
+ * pull is incremental on `updated_at`, so a table added to sync arrives EMPTY
+ * on every device that has synced before: its rows all predate the stored
+ * cursor and nothing will ever touch them again. Phase 3 hit it in the open —
+ * 21 customers in the register, one on the phone, and the one was simply the
+ * only row created since the last sync.
+ *
+ * Resetting the cursor would fix it by re-pulling all 3,607 evaluations over
+ * field 4G to deliver 21 rows. This asks for the new tables only, once each.
+ */
+const BOOTSTRAPPED_TABLES_KEY = 'sync_bootstrapped_tables';
+
+/**
+ * The tables that existed before the marker did — everything synced up to and
+ * including schema v14.
+ *
+ * A device upgrading into v15 has no marker, and without this list "nothing is
+ * marked" would read as "fetch everything whole" — 3,607 evaluations over field
+ * 4G to deliver 21 customers, which is the cost this mechanism exists to avoid.
+ * Seeding it says what is actually true of such a device: it has been pulling
+ * these tables incrementally all along, and only the v15 ones are new to it.
+ *
+ * Do NOT add to this list. A table added from v15 onwards is absent from a
+ * device's stored markers, which is exactly what makes it get pulled whole,
+ * once.
+ */
+const PRE_V15_SYNCED_TABLES = [
+  'sites',
+  'assemblies',
+  'machines',
+  'checklist_frameworks',
+  'question_sets',
+  'questions',
+  'checklist_instances',
+  'checklist_responses',
+  'risk_evaluations',
+  'floor_plans',
+  'floor_plan_markers',
+  'control_review_rounds',
+  'control_reviews',
+];
 export const CACHED_USER_ID_KEY = 'sync_cached_user_id';
 const SYNC_AUTH_ERROR_PREFIX = 'SYNC_AUTH_REQUIRED';
 
@@ -39,6 +83,9 @@ export async function getCachedUserId(): Promise<number | null> {
 /** User-writable collections that can have pending (unsynced) records. */
 const WRITABLE_COLLECTIONS = [
   'sites',
+  // Ticking an existing asset into a repeat round creates one of these. The
+  // other three spine tables are pull-only and can never be pending.
+  'assessments',
   'control_review_rounds',
   'control_reviews',
   'floor_plans',
@@ -65,6 +112,10 @@ export async function getPendingCount(): Promise<number> {
 // Table → WatermelonDB collection name mapping
 // --------------------------------------------------------------------------
 const TABLE_MAP: Record<string, string> = {
+  customers:            'customers',
+  customer_sites:       'customer_sites',
+  site_areas:           'site_areas',
+  assessments:          'assessments',
   sites:                'sites',
   assemblies:           'assemblies',
   machines:             'machines',
@@ -94,6 +145,11 @@ const PUSH_ORDER = [
   'floor_plans',
   'assemblies',
   'machines',
+  // Episodes follow the job and the assets they name. The other three spine
+  // tables are absent on purpose: a device reads the register and never adds to
+  // it, because free-text customer entry here is what produced 39 spellings of
+  // 17 customers.
+  'assessments',
   'floor_plan_markers',
   'checklist_instances',
   'checklist_responses',
@@ -105,8 +161,18 @@ const PUSH_ORDER = [
  * collection that holds the referenced records.
  */
 const FK_FIELDS: Record<string, Record<string, string>> = {
+  sites: {
+    customer_id: 'customers',
+  },
   assemblies: {
     site_id: 'sites',
+    customer_site_id: 'customer_sites',
+    area_id: 'site_areas',
+  },
+  assessments: {
+    site_id: 'sites',
+    assembly_id: 'assemblies',
+    machine_id: 'machines',
   },
   machines: {
     assembly_id: 'assemblies',
@@ -182,6 +248,35 @@ const DEFERRABLE_PHOTO_FIELDS: Record<string, string[]> = {
  * drifting into mobile sync semantics when the SQL schema expands.
  */
 const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
+  customers: [
+    'customer_name',
+    'created_at',
+    'updated_at',
+  ],
+  customer_sites: [
+    'customer_id',
+    'site_name',
+    'address',
+    'created_at',
+    'updated_at',
+  ],
+  site_areas: [
+    'customer_site_id',
+    'area_name',
+    'created_at',
+    'updated_at',
+  ],
+  assessments: [
+    'site_id',
+    'assembly_id',
+    'machine_id',
+    'service_type_id',
+    'assessment_date',
+    'assessor_id',
+    'status',
+    'created_at',
+    'updated_at',
+  ],
   checklist_frameworks: [
     'framework_name',
     'description',
@@ -190,6 +285,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
   ],
   sites: [
     'customer',
+    'customer_id',
     'project_number',
     'project_description',
     'assessor_id',
@@ -202,6 +298,9 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
   ],
   assemblies: [
     'site_id',
+    'customer_site_id',
+    'area_id',
+    'status',
     'assembly_name',
     'description',
     'is_in_use',
@@ -216,6 +315,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
   ],
   machines: [
     'assembly_id',
+    'status',
     'machine_name_reference',
     'machine_category',
     'machine_use',
@@ -365,6 +465,30 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
 // On first run (no stored timestamp) the server returns all records.
 // WatermelonDB is never wiped — existing data stays visible during sync.
 // --------------------------------------------------------------------------
+async function _bootstrappedTables(): Promise<Set<string>> {
+  try {
+    const raw = await AsyncStorage.getItem(BOOTSTRAPPED_TABLES_KEY);
+    if (!raw) return new Set(PRE_V15_SYNCED_TABLES);
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : PRE_V15_SYNCED_TABLES);
+  } catch {
+    // Unreadable marker: assume the pre-v15 baseline rather than nothing, so a
+    // corrupt key costs one small full pull instead of a full re-download.
+    return new Set(PRE_V15_SYNCED_TABLES);
+  }
+}
+
+async function _markBootstrapped(tables: string[]): Promise<void> {
+  try {
+    const held = await _bootstrappedTables();
+    for (const t of tables) held.add(t);
+    await AsyncStorage.setItem(BOOTSTRAPPED_TABLES_KEY, JSON.stringify([...held]));
+  } catch {
+    // Losing the marker costs one redundant full pull, which is why it is not
+    // worth failing a sync over.
+  }
+}
+
 export async function pullFromServer(getAccessToken: () => Promise<string | null>): Promise<void> {
   let lastPulledAt = await AsyncStorage.getItem(LAST_PULLED_AT_KEY);
   const token = await _requireSyncToken(getAccessToken, 'pull');
@@ -379,9 +503,17 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     }
   }
 
+  // Tables never yet held in full. On a first-ever sync there is no cursor and
+  // everything comes down anyway, so the whole list is simply marked done.
+  const bootstrapped = await _bootstrappedTables();
+  const needFull = lastPulledAt
+    ? Object.keys(TABLE_MAP).filter(t => !bootstrapped.has(t))
+    : [];
+
   const { changes, current_ids, timestamp } = await SyncApi.pull(
     token,
     lastPulledAt ?? undefined,
+    needFull,
   );
 
   const db = getDatabase();
@@ -402,6 +534,12 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
 
   // parent collection name → (serverId → local UUID)
   const parentMaps: Record<string, Map<number, string>> = {
+    // The spine. customer_sites and site_areas are parents of an assembly as of
+    // v15, so without these an asset would arrive with its place stripped and
+    // the picker would have nothing to group by.
+    customers:            await _buildMap('customers'),
+    customer_sites:       await _buildMap('customer_sites'),
+    site_areas:           await _buildMap('site_areas'),
     sites:                await _buildMap('sites'),
     assemblies:           await _buildMap('assemblies'),
     machines:             await _buildMap('machines'),
@@ -419,7 +557,10 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
 
   // FK columns for each server table: column name → parent collection
   const FK_DEFS: Record<string, Record<string, string>> = {
-    assemblies:          { site_id: 'sites' },
+    customer_sites:      { customer_id: 'customers' },
+    site_areas:          { customer_site_id: 'customer_sites' },
+    assessments:         { site_id: 'sites', assembly_id: 'assemblies', machine_id: 'machines' },
+    assemblies:          { site_id: 'sites', customer_site_id: 'customer_sites', area_id: 'site_areas' },
     machines:            { assembly_id: 'assemblies' },
     questions:           { question_set_id: 'question_sets' },
     question_sets:       { framework_id: 'checklist_frameworks' },
@@ -430,6 +571,7 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     floor_plan_markers:  { floor_plan_id: 'floor_plans', assembly_id: 'assemblies', machine_id: 'machines' },
     control_review_rounds: { site_id: 'sites' },
     control_reviews:       { round_id: 'control_review_rounds', eval_id: 'risk_evaluations' },
+    sites:                 { customer_id: 'customers' },
   };
 
   // Resolve any integer FK values in a fields object to local UUIDs.
@@ -548,6 +690,9 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
   } else {
     // Advance the cursor — next pull only fetches records changed after this moment
     await AsyncStorage.setItem(LAST_PULLED_AT_KEY, new Date(timestamp).toISOString());
+    // Only after the rows are written: a pull that failed halfway must ask for
+    // the same tables again rather than record them as held.
+    await _markBootstrapped(Object.keys(TABLE_MAP));
   }
 
   // Cache the current user's server ID so offline creates can stamp assessor_id
@@ -567,6 +712,10 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
 // --------------------------------------------------------------------------
 export async function clearSyncTimestamp(): Promise<void> {
   await AsyncStorage.removeItem(LAST_PULLED_AT_KEY);
+  // The per-table markers go with it. Clearing the cursor is the manual fix for
+  // "the device is missing something it should have", and leaving a marker
+  // behind would keep the very table that was missing out of the re-pull.
+  await AsyncStorage.removeItem(BOOTSTRAPPED_TABLES_KEY);
 }
 
 // --------------------------------------------------------------------------
@@ -797,6 +946,10 @@ async function _requireSyncToken(
 /** Server-side integer PK column name for each table */
 function _pkFor(table: string): string {
   const pkMap: Record<string, string> = {
+    customers:            'customer_id',
+    customer_sites:       'customer_site_id',
+    site_areas:           'area_id',
+    assessments:          'assessment_id',
     sites:                'site_id',
     assemblies:           'assembly_id',
     machines:             'machine_id',

@@ -33,6 +33,7 @@ import MultiSelectPickerField from '@/components/MultiSelectPickerField';
 import { isDemoSite } from '@/utils/demoMode';
 import { getHazardDescriptionPrompt } from '@/utils/hazardDescriptionQuality';
 import { getCachedUserId } from '@/services/sync';
+import { resolveJobSiteId } from '@/services/jobContext';
 import { enqueuePhoto } from '@/services/photoQueue';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import Machine from '@/db/models/Machine.model';
@@ -312,6 +313,9 @@ export default function NewRiskEvaluationScreen() {
     const createdBy = (await getCachedUserId()) ?? 0;
     // Focus mode captures the sub-machine via the wizard; fall back to URL param.
     const effectiveMachineId = wizardData.machineId ?? machine_id ?? null;
+    // Which job this hazard was found on. For an asset being re-assessed that is
+    // NOT the job that created it — see services/jobContext.
+    const jobSiteId = await resolveJobSiteId(db, { assemblyId: assembly_id, siteId: site_id });
     const rawHazardText = wizardData.whatMightGoWrong.trim();
     const preControlSev = (wizardData.preControlSeverity as RiskLevel) ?? null;
     const preControlProb = (wizardData.preControlProbability as RiskLevel) ?? null;
@@ -321,7 +325,7 @@ export default function NewRiskEvaluationScreen() {
 
     const newEval = await db.write(async () => {
       return await db.get<RiskEvaluation>('risk_evaluations').create(ev => {
-        ev.siteId = site_id ?? null;
+        ev.siteId = jobSiteId;
         ev.assemblyId = assembly_id ?? null;
         ev.machineId = effectiveMachineId;
         ev.checklistId = checklist_id ?? null;
@@ -626,10 +630,11 @@ export default function NewRiskEvaluationScreen() {
       const createdBy = (await getCachedUserId()) ?? 0;
       const effectiveMachineId = selectedMachineId ?? machine_id ?? null;
       const rawHazardText = whatMightGoWrong.trim();
+      const jobSiteId = await resolveJobSiteId(db, { assemblyId: assembly_id, siteId: site_id });
 
       const newEval = await db.write(async () => {
         return await db.get<RiskEvaluation>('risk_evaluations').create(ev => {
-          ev.siteId = site_id ?? null;
+          ev.siteId = jobSiteId;
           ev.assemblyId = assembly_id ?? null;
           ev.machineId = effectiveMachineId;
           ev.checklistId = checklist_id ?? null;

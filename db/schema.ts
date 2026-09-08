@@ -21,9 +21,15 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      upgraded device keeps them physically (WatermelonDB cannot drop a column)
 //      but never reads or writes them, because this file is what defines the
 //      fields. See migrations.ts v14 for why v13 above cannot simply be edited.
+// v15: the customer spine reaches the device — customers, customer_sites, site_areas
+//      and assessments, plus customer_id on sites, customer_site_id/area_id/status on
+//      assemblies and status on machines. Phase 3 of the customer-centric restructure,
+//      and the one release every mobile-visible change of that plan was batched into.
+//      Job setup stops typing a customer and starts picking one, and a repeat round
+//      ticks assets that already exist instead of creating new ones.
 
 export default appSchema({
-  version: 14,
+  version: 15,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -37,11 +43,76 @@ export default appSchema({
         // No updated_at — treated same as question_sets
       ],
     }),
+    // ---------------------------------------------------------------------
+    // The customer spine (v15). Pull-only: a device reads the register and
+    // never adds to it, because free-text customer entry here is what produced
+    // 39 spellings of 17 customers. Somewhere genuinely new is left unpicked
+    // and resolved by a human in the desktop queue.
+    // ---------------------------------------------------------------------
+    tableSchema({
+      name: 'customers',
+      columns: [
+        { name: 'server_id', type: 'number', isOptional: true },
+        { name: 'customer_name', type: 'string' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'customer_sites',
+      columns: [
+        { name: 'server_id', type: 'number', isOptional: true },
+        { name: 'customer_id', type: 'string' },      // local UUID of customer
+        { name: 'site_name', type: 'string' },
+        { name: 'address', type: 'string', isOptional: true },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    tableSchema({
+      name: 'site_areas',
+      columns: [
+        { name: 'server_id', type: 'number', isOptional: true },
+        { name: 'customer_site_id', type: 'string' },  // local UUID of customer_site
+        { name: 'area_name', type: 'string' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    // The service episode. The ONE writable table of the four: ticking an
+    // existing asset into a repeat round is creating an episode against it,
+    // which is what gives an asset a history that outlives the job.
+    tableSchema({
+      name: 'assessments',
+      columns: [
+        { name: 'server_id', type: 'number', isOptional: true },
+        { name: 'site_id', type: 'string', isOptional: true },      // the job
+        { name: 'assembly_id', type: 'string', isOptional: true },  // the asset
+        { name: 'machine_id', type: 'string', isOptional: true },   // one sub-machine of it
+        { name: 'service_type_id', type: 'number', isOptional: true },
+        { name: 'assessment_date', type: 'string' },
+        { name: 'assessor_id', type: 'number', isOptional: true },
+        { name: 'status', type: 'string' },  // 'In Progress' | 'Complete' | 'Abandoned'
+        { name: 'is_synced', type: 'boolean' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
     tableSchema({
       name: 'sites',
       columns: [
         { name: 'server_id', type: 'number', isOptional: true },
+        // The name as issued, kept because delivered reports carry it, with
+        // customer_id as current truth alongside (v15).
         { name: 'customer', type: 'string' },
+        { name: 'customer_id', type: 'string', isOptional: true },
+        // The place and area picked at job setup. LOCAL ONLY — neither is a
+        // column on the server's `sites`, where the place lives on each asset
+        // instead. They are remembered here so a job created offline can stamp
+        // its assets with the place the assessor chose, including before it has
+        // any assets to read it back from.
+        { name: 'customer_site_id', type: 'string', isOptional: true },
+        { name: 'area_id', type: 'string', isOptional: true },
         { name: 'project_number', type: 'string' },
         { name: 'project_description', type: 'string', isOptional: true },
         { name: 'assessor_id', type: 'number' },
@@ -58,7 +129,12 @@ export default appSchema({
       name: 'assemblies',
       columns: [
         { name: 'server_id', type: 'number', isOptional: true },
+        // The job that ORIGINATED this asset, and nothing more. Which jobs have
+        // since assessed it is `assessments` (v15).
         { name: 'site_id', type: 'string' },
+        { name: 'customer_site_id', type: 'string', isOptional: true },  // the place
+        { name: 'area_id', type: 'string', isOptional: true },           // grouping in it
+        { name: 'status', type: 'string', isOptional: true },  // Active | Retired | Replaced
         { name: 'assembly_name', type: 'string' },
         { name: 'description', type: 'string', isOptional: true },
         { name: 'is_in_use', type: 'boolean' },
@@ -78,6 +154,7 @@ export default appSchema({
       columns: [
         { name: 'server_id', type: 'number', isOptional: true },
         { name: 'assembly_id', type: 'string' },
+        { name: 'status', type: 'string', isOptional: true },  // Active | Retired | Replaced
         { name: 'machine_name_reference', type: 'string' },
         { name: 'machine_category', type: 'string', isOptional: true },
         { name: 'machine_use', type: 'string', isOptional: true },

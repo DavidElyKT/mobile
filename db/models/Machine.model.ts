@@ -14,6 +14,8 @@ export default class Machine extends Model {
 
   @field('server_id') declare serverId: number | null;
   @field('assembly_id') declare assemblyId: string;
+  // A sub-machine runs on its own clock, so it needs its own way to stop.
+  @field('status') declare status: string | null;  // Active | Retired | Replaced
   @field('machine_name_reference') declare machineNameReference: string;
   @field('machine_category') declare machineCategory: string | null;
   @field('machine_use') declare machineUse: string | null;

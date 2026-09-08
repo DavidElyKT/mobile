@@ -71,6 +71,26 @@ export default function NewAssetScreen() {
     setPendingAnnotation(null);
   }
 
+
+  /**
+   * The place this asset sits at, and the area inside it.
+   *
+   * Taken from the job's setup picks, which is where a human chose them. An
+   * asset created in a job whose place nobody picked gets neither, and the
+   * office places it from the desktop queue — the phone never guesses, because
+   * a wrong place files one customer's machinery under another and nothing
+   * downstream would question it.
+   */
+  async function placeOfJob(): Promise<{ customerSiteId: string | null; areaId: string | null }> {
+    if (!site_id) return { customerSiteId: null, areaId: null };
+    try {
+      const site = await db.get<Site>('sites').find(site_id);
+      return { customerSiteId: site.customerSiteId ?? null, areaId: site.areaId ?? null };
+    } catch {
+      return { customerSiteId: null, areaId: null };
+    }
+  }
+
   async function handleMarkLocation() {
     if (!savedAssembly) return;
     await handleMarkLocationForAssembly(savedAssembly);
@@ -80,9 +100,12 @@ export default function NewAssetScreen() {
     if (!assetName.trim()) { setError('Asset name is required.'); return; }
     setSaving(true);
     try {
+      const place = await placeOfJob();
       const newAssembly = await db.write(async () => {
         return await db.get<Assembly>('assemblies').create(a => {
           a.siteId = site_id;
+          a.customerSiteId = place.customerSiteId;
+          a.areaId = place.areaId;
           a.assemblyName = assetName.trim();
           a.description = description.trim();
           a.isInUse = isInUse;
@@ -135,9 +158,12 @@ export default function NewAssetScreen() {
     setSaving(true);
     try {
       // Write locally immediately
+      const place = await placeOfJob();
       const newAssembly = await db.write(async () => {
         return await db.get<Assembly>('assemblies').create(a => {
           a.siteId = site_id;
+          a.customerSiteId = place.customerSiteId;
+          a.areaId = place.areaId;
           a.assemblyName = assetName.trim();
           a.description = description.trim();
           a.isInUse = isInUse;
