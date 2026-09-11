@@ -160,6 +160,22 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.container}>
+      {/* The notepad is a tool rather than a setting, and it lives here because
+          it belongs to no job until one is picked — there is nowhere in the
+          project tree it could hang off. */}
+      <Pressable style={styles.section} onPress={() => router.push('/(app)/notepad' as any)}>
+        <View style={styles.row}>
+          <Feather name="edit-3" size={20} color={Colors.primary} />
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Digital notepad</Text>
+            <Text style={styles.rowSub}>
+              Notes and photos against any job, PUWER or CE, for writing up at the desk.
+            </Text>
+          </View>
+          <Feather name="chevron-right" size={20} color={Colors.textLight} />
+        </View>
+      </Pressable>
+
       <View style={styles.section}>
         <View style={styles.row}>
           <View style={styles.rowText}>

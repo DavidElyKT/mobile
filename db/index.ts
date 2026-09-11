@@ -6,7 +6,7 @@ import {
   Customer, CustomerSite, SiteArea, Assessment,
   Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
   ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
-  ControlReviewRound, ControlReview,
+  ControlReviewRound, ControlReview, CEProject, NotepadNote,
 } from './models';
 
 let _database: Database | null = null;
@@ -30,7 +30,7 @@ export function getDatabase(): Database {
       Customer, CustomerSite, SiteArea, Assessment,
       Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
       ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
-      ControlReviewRound, ControlReview,
+      ControlReviewRound, ControlReview, CEProject, NotepadNote,
     ],
   });
 

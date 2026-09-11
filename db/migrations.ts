@@ -60,6 +60,12 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 //             No data is copied and nothing is rewritten. A repeat round does
 //             not re-parent an asset — it records another episode against the
 //             same one — so there is nothing here to migrate.
+// v15 → v16: The digital notepad — notepad_notes, plus ce_projects so a note can
+//             name a CE job. Both arrive EMPTY and neither is in
+//             PRE_V15_SYNCED_TABLES in services/sync.ts, which is what makes the
+//             next sync ask for them whole: the pull is incremental on
+//             updated_at, so a table added to sync otherwise arrives empty on
+//             every device that has ever synced and stays that way.
 
 export default schemaMigrations({
   migrations: [
@@ -484,6 +490,41 @@ export default schemaMigrations({
           table: 'machines',
           columns: [
             { name: 'status', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 16,
+      steps: [
+        createTable({
+          name: 'ce_projects',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'customer', type: 'string' },
+            { name: 'project_number', type: 'string', isOptional: true },
+            { name: 'date', type: 'string' },
+            { name: 'status', type: 'string', isOptional: true },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'notepad_notes',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'job_kind', type: 'string' },
+            { name: 'site_id', type: 'string', isOptional: true },
+            { name: 'ce_project_id', type: 'string', isOptional: true },
+            { name: 'body', type: 'string', isOptional: true },
+            { name: 'photo_url', type: 'string', isOptional: true },
+            { name: 'captured_at', type: 'string' },
+            { name: 'author_id', type: 'number', isOptional: true },
+            { name: 'used_at', type: 'string', isOptional: true },
+            { name: 'used_by', type: 'number', isOptional: true },
+            { name: 'is_synced', type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
           ],
         }),
       ],

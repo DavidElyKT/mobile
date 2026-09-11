@@ -27,9 +27,15 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      and the one release every mobile-visible change of that plan was batched into.
 //      Job setup stops typing a customer and starts picking one, and a repeat round
 //      ticks assets that already exist instead of creating new ones.
+// v16: the digital notepad — notepad_notes (writable) and ce_projects (pull-only).
+//      A scratchpad against a job, not a structured record: no asset, sub-machine,
+//      evaluation or clause reference, because filing happens at the desk when the
+//      entry is dragged into a real field. ce_projects arrives for one reason only —
+//      a note can be taken on a CE job, and CE marking is otherwise desktop-only,
+//      so without the register the job picker could not name one.
 
 export default appSchema({
-  version: 15,
+  version: 16,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -359,6 +365,52 @@ export default appSchema({
         { name: 'is_synced',  type: 'boolean' },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    // ---------------------------------------------------------------------
+    // The digital notepad (v16).
+    //
+    // The CE job register, pull-only and cut to what a job picker shows. CE
+    // marking itself is desktop work; this is here so a note taken on site can
+    // name the CE job it belongs to.
+    // ---------------------------------------------------------------------
+    tableSchema({
+      name: 'ce_projects',
+      columns: [
+        { name: 'server_id',      type: 'number', isOptional: true },
+        { name: 'customer',       type: 'string' },
+        { name: 'project_number', type: 'string', isOptional: true },
+        { name: 'date',           type: 'string' },
+        { name: 'status',         type: 'string', isOptional: true },  // 'Active' | 'Completed'
+        { name: 'created_at',     type: 'number' },
+        { name: 'updated_at',     type: 'number' },
+      ],
+    }),
+    // One entry: text, a photo, or both. Several photos are several entries —
+    // the desk drags one photo into one field at a time.
+    //
+    // Exactly one of site_id / ce_project_id is set, and job_kind says which.
+    // used_at is written at the desk when the entry is dragged into a field and
+    // is READ-ONLY here: the device shows an entry as spent, and cannot un-spend
+    // one by replaying a stale row.
+    tableSchema({
+      name: 'notepad_notes',
+      columns: [
+        { name: 'server_id',     type: 'number', isOptional: true },
+        { name: 'job_kind',      type: 'string' },                    // 'puwer' | 'ce'
+        { name: 'site_id',       type: 'string', isOptional: true },       // local UUID of site
+        { name: 'ce_project_id', type: 'string', isOptional: true },       // local UUID of ce_project
+        { name: 'body',          type: 'string', isOptional: true },
+        { name: 'photo_url',     type: 'string', isOptional: true },
+        // When the assessor wrote it, which is not created_at once a note is
+        // typed in a blackspot and reaches the server hours later.
+        { name: 'captured_at',   type: 'string' },
+        { name: 'author_id',     type: 'number', isOptional: true },
+        { name: 'used_at',       type: 'string', isOptional: true },
+        { name: 'used_by',       type: 'number', isOptional: true },
+        { name: 'is_synced',     type: 'boolean' },
+        { name: 'created_at',    type: 'number' },
+        { name: 'updated_at',    type: 'number' },
       ],
     }),
   ],

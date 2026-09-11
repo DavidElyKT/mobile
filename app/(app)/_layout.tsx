@@ -4,6 +4,7 @@ import { Stack } from 'expo-router';
 import KTHeaderTitle from '@/components/KTHeaderTitle';
 import { SyncProvider } from '@/context/SyncContext';
 import SyncErrorBanner from '@/components/SyncErrorBanner';
+import NotepadTab from '@/components/NotepadTab';
 import { initPhotoCache, reclaimUnreferencedPhotos } from '@/services/photoPrefetch';
 
 export default function AppLayout() {
@@ -31,6 +32,15 @@ export default function AppLayout() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="home" />
       <Stack.Screen name="settings" />
+      {/* Digital notepad — indigo, so a scratchpad is never mistaken for the
+          blue assessment flow, the amber admin review or the teal return visit. */}
+      <Stack.Screen
+        name="notepad"
+        options={{
+          headerStyle: { backgroundColor: '#4338CA' },
+          headerTintColor: '#fff',
+        }}
+      />
       <Stack.Screen name="sites/index" options={{ title: 'Projects' }} />
       <Stack.Screen name="sites/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="sites/[id]" />
@@ -76,6 +86,10 @@ export default function AppLayout() {
         }}
       />
     </Stack>
+    {/* Outside the Stack, so it is on every screen in the app group — including
+        ones that own their own headerRight, which is why this is not a header
+        button. See components/NotepadTab.tsx. */}
+    <NotepadTab />
     </View>
     </SyncProvider>
   );

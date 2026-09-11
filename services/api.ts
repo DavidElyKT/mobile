@@ -313,6 +313,22 @@ export const ControlReviewApi = {
 };
 
 // ---------------------------------------------------------------------------
+// Digital notepad
+//
+// Only the delete is here. Everything else about a note — writing it, attaching
+// a photo, reading the day back — is a local WatermelonDB write pushed by sync,
+// because the whole point of a notepad is that it works with no signal. A
+// delete is the one act that has to reach the server: the row is already there,
+// and destroying it locally alone would have the next pull hand it straight
+// back.
+// ---------------------------------------------------------------------------
+
+export const NotepadApi = {
+  delete: (token: string, noteId: number) =>
+    request<void>(`/notepad/notes/${noteId}`, token, { method: 'DELETE' }),
+};
+
+// ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
 

@@ -19,3 +19,6 @@ export { default as ControlReviewRound } from './ControlReviewRound.model';
 export type { ControlReviewRoundStatus } from './ControlReviewRound.model';
 export { default as ControlReview } from './ControlReview.model';
 export type { ControlReviewOutcome } from './ControlReview.model';
+export { default as CEProject } from './CEProject.model';
+export { default as NotepadNote } from './NotepadNote.model';
+export type { NotepadJobKind } from './NotepadNote.model';

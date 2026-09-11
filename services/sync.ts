@@ -95,6 +95,8 @@ const WRITABLE_COLLECTIONS = [
   'checklist_instances',
   'checklist_responses',
   'risk_evaluations',
+  // ce_projects is pull-only and can never be pending.
+  'notepad_notes',
 ] as const;
 
 /** Count of records that have been written locally but not yet pushed to the server. */
@@ -129,6 +131,8 @@ const TABLE_MAP: Record<string, string> = {
   floor_plan_markers:   'floor_plan_markers',
   control_review_rounds: 'control_review_rounds',
   control_reviews:       'control_reviews',
+  ce_project:            'ce_projects',
+  notepad_note:          'notepad_notes',
 };
 
 /**
@@ -154,6 +158,10 @@ const PUSH_ORDER = [
   'checklist_instances',
   'checklist_responses',
   'risk_evaluations',
+  // After `sites`: a note taken on a job created offline waits for that job to
+  // have a server id before it can name it. ce_project is absent on purpose —
+  // the device reads the CE job register and never adds to it.
+  'notepad_note',
 ] as const;
 
 /**
@@ -208,6 +216,10 @@ const FK_FIELDS: Record<string, Record<string, string>> = {
     round_id: 'control_review_rounds',
     eval_id:  'risk_evaluations',
   },
+  notepad_note: {
+    site_id:       'sites',
+    ce_project_id: 'ce_projects',
+  },
 };
 
 /**
@@ -224,6 +236,10 @@ const PHOTO_FIELDS: Record<string, string[]> = {
   // The control photo IS the evidence the control was fitted. A verdict
   // that reached the server without it would look reviewed and prove nothing.
   control_reviews:     ['photo_url'],
+  // A photo note IS its photo — an entry that arrived without it reads on the
+  // desk as a note that never had one, and there is nothing else in the row to
+  // say otherwise.
+  notepad_note:        ['photo_url'],
 };
 
 /**
@@ -414,6 +430,29 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'created_at',
     'updated_at',
   ],
+  ce_project: [
+    'customer',
+    'project_number',
+    'date',
+    'status',
+    'created_at',
+    'updated_at',
+  ],
+  notepad_note: [
+    'job_kind',
+    'site_id',
+    'ce_project_id',
+    'body',
+    'photo_url',
+    'captured_at',
+    // Readable, never writable — the server drops all three on push. They are
+    // here so the phone can show whose note it is and that it has been used.
+    'author_id',
+    'used_at',
+    'used_by',
+    'created_at',
+    'updated_at',
+  ],
   control_reviews: [
     'round_id',
     'eval_id',
@@ -553,6 +592,9 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     // eval_id and the worklist would render as rows about nothing.
     risk_evaluations:      await _buildMap('risk_evaluations'),
     control_review_rounds: await _buildMap('control_review_rounds'),
+    // The notepad's other job spine. Without it a note taken on a CE job would
+    // arrive with its job stripped and sit in the notepad belonging to nothing.
+    ce_projects:           await _buildMap('ce_projects'),
   };
 
   // FK columns for each server table: column name → parent collection
@@ -572,6 +614,7 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     control_review_rounds: { site_id: 'sites' },
     control_reviews:       { round_id: 'control_review_rounds', eval_id: 'risk_evaluations' },
     sites:                 { customer_id: 'customers' },
+    notepad_note:          { site_id: 'sites', ce_project_id: 'ce_projects' },
   };
 
   // Resolve any integer FK values in a fields object to local UUIDs.
@@ -963,6 +1006,8 @@ function _pkFor(table: string): string {
     floor_plan_markers:   'marker_id',
     control_review_rounds: 'round_id',
     control_reviews:       'control_review_id',
+    ce_project:            'ce_project_id',
+    notepad_note:          'note_id',
   };
   return pkMap[table] ?? 'id';
 }
