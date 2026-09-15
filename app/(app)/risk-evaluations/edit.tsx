@@ -22,6 +22,7 @@ import {
   type RiskLevel,
 } from '@/constants/risk';
 import { Colors } from '@/constants/Colors';
+import { RiskDefinitionsButton } from '@/components/RiskDefinitionsModal';
 import PhotoPicker from '@/components/PhotoPicker';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
@@ -455,7 +456,10 @@ export default function EditRiskEvaluationScreen() {
 function RiskSelector({ label, value, onChange }: { label: string; value: RiskLevel | null; onChange: (v: RiskLevel | null) => void }) {
   return (
     <View style={{ marginBottom: 14 }}>
-      <Text style={styles.subLabel}>{label}</Text>
+      <View style={styles.subLabelRow}>
+        <Text style={[styles.subLabel, { marginBottom: 0 }]}>{label}</Text>
+        <RiskDefinitionsButton topic={label === 'Probability' ? 'probability' : 'severity'} />
+      </View>
       <View style={styles.chipRow}>
         {RISK_LEVELS.map(level => (
           <Pressable
@@ -503,6 +507,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary + '16',
     alignItems: 'center', justifyContent: 'center',
   },
+  subLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   subLabel: { fontSize: 14, fontWeight: '600', color: Colors.textMuted, marginBottom: 10 },
   sectionHeading: { fontSize: 19, fontWeight: '700', color: Colors.text, marginBottom: 14 },
   divider: { height: 1, backgroundColor: Colors.border, marginVertical: 24 },

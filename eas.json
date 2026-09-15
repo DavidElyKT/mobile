@@ -19,15 +19,16 @@
         "EXPO_IMAGE_UTILS_NO_SHARP": "1"
       }
     },
-    "preview": {
+    "production": {
       "distribution": "store",
-      "channel": "preview",
+      "channel": "production",
       "autoIncrement": true,
       "ios": {
         "image": "sdk-55"
       },
       "android": {
-        "image": "sdk-55"
+        "image": "sdk-55",
+        "buildType": "app-bundle"
       },
       "env": {
         "EXPO_PUBLIC_API_URL": "https://puwer-app-hydcagcwezb3cacy.uksouth-01.azurewebsites.net/api",
@@ -35,24 +36,22 @@
         "EXPO_PUBLIC_CLIENT_ID": "ff0ea505-d9d7-4fac-984e-6478a3a33896"
       }
     },
-    "production": {
+    "sideload": {
+      "extends": "production",
+      "distribution": "internal",
       "channel": "production",
-      "autoIncrement": true,
-      "ios": {
-        "image": "sdk-55"
-      },
       "android": {
-        "image": "sdk-55"
-      },
-      "env": {
-        "EXPO_PUBLIC_API_URL": "https://puwer-app-hydcagcwezb3cacy.uksouth-01.azurewebsites.net/api",
-        "EXPO_PUBLIC_TENANT_ID": "d8c2652b-fbfd-4d3e-b5ae-93940b898595",
-        "EXPO_PUBLIC_CLIENT_ID": "ff0ea505-d9d7-4fac-984e-6478a3a33896"
+        "image": "sdk-55",
+        "buildType": "apk"
       }
     }
   },
   "submit": {
-    "production": {},
-    "preview": {}
+    "production": {
+      "android": {
+        "track": "production",
+        "releaseStatus": "completed"
+      }
+    }
   }
 }

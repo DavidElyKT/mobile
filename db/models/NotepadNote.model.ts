@@ -34,6 +34,17 @@ export default class NotepadNote extends Model {
   @field('ce_project_id') declare ceProjectId: string | null;
   @field('body') declare body: string | null;
   @field('photo_url') declare photoUrl: string | null;
+  /**
+   * The un-annotated copy, set ONLY when the assessor actually drew on the
+   * photo — annotation flattens the strokes into `photoUrl`, so this is the
+   * only clean image that survives. NULL means the photo was never drawn on,
+   * so it is never backfilled from `photoUrl`.
+   *
+   * WRITE-ONCE on the server (WRITE_ONCE_COLUMNS in api/sync/routes.py): the
+   * first value to arrive wins. Annotating a second time would otherwise hand
+   * back an already-marked image as the "original".
+   */
+  @field('photo_original_url') declare photoOriginalUrl: string | null;
   @field('captured_at') declare capturedAt: string;
   @field('author_id') declare authorId: number | null;
   @field('used_at') declare usedAt: string | null;

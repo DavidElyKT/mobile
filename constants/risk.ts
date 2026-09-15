@@ -108,3 +108,61 @@ export const RATING_COLOURS: Record<RiskLevel, string> = {
   High: '#EF4444',       // red
   Severe: '#7C3AED',     // purple
 };
+
+// ---------------------------------------------------------------------------
+// Rating definitions — the wording consultants assess against in the field.
+// Mirrors the published PUWER definition tables; keep in step with them.
+// The tables define Low–Severe only; Negligible sits below Low as the floor.
+// ---------------------------------------------------------------------------
+
+export interface RatingDefinition {
+  level: RiskLevel;
+  definition: string;
+  examples: string;
+}
+
+export const SEVERITY_DEFINITIONS: RatingDefinition[] = [
+  {
+    level: 'Low',
+    definition: 'No absence or only minor injury/illness with return to normal duties within ≤1 day.',
+    examples: 'Small cuts, bruises, mild irritation, first-aid only.',
+  },
+  {
+    level: 'Medium',
+    definition: 'Absence from normal duties of 1–7 days, with full recovery expected.',
+    examples: 'Sprains, minor fractures, burns requiring treatment but not long-term disability.',
+  },
+  {
+    level: 'High',
+    definition: 'Absence from work of >1 week to several months, or permanent partial disability affecting ability to work normally.',
+    examples: 'Major fractures, amputations of finger/hand, serious lacerations, respiratory damage.',
+  },
+  {
+    level: 'Severe',
+    definition: 'Fatality or permanent total disability; or multiple persons absent long-term.',
+    examples: 'Death, multiple severe injuries from crushing or explosion, catastrophic incidents.',
+  },
+];
+
+export const PROBABILITY_DEFINITIONS: RatingDefinition[] = [
+  {
+    level: 'Low',
+    definition: 'Very rare exposure; hazardous event unlikely; harm avoidable.',
+    examples: 'Access only during rare maintenance with strong safeguards.',
+  },
+  {
+    level: 'Medium',
+    definition: 'Infrequent exposure; hazardous event possible; some avoidance possible.',
+    examples: 'Occasional manual intervention; partial protection in place.',
+  },
+  {
+    level: 'High',
+    definition: 'Frequent exposure; hazardous event quite possible; limited ability to avoid.',
+    examples: 'Operators often in hazard zone; reliance on behaviour/training.',
+  },
+  {
+    level: 'Severe',
+    definition: 'Continuous/unavoidable exposure; hazardous event likely; harm not avoidable.',
+    examples: 'Operators constantly exposed; little or no protective systems.',
+  },
+];

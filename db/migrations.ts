@@ -66,6 +66,12 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 //             next sync ask for them whole: the pull is incremental on
 //             updated_at, so a table added to sync otherwise arrives empty on
 //             every device that has ever synced and stays that way.
+// v16 → v17: notepad_notes.photo_original_url. Annotating a photo flattens the
+//             strokes into it, so without a second column the clean image is
+//             gone the moment anyone draws. Added NULL on every existing row and
+//             deliberately not backfilled from photo_url: NULL is the truthful
+//             answer for a photo that was never annotated, and copying across
+//             would make the column unable to say which is which.
 
 export default schemaMigrations({
   migrations: [
@@ -525,6 +531,17 @@ export default schemaMigrations({
             { name: 'is_synced', type: 'boolean' },
             { name: 'created_at', type: 'number' },
             { name: 'updated_at', type: 'number' },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 17,
+      steps: [
+        addColumns({
+          table: 'notepad_notes',
+          columns: [
+            { name: 'photo_original_url', type: 'string', isOptional: true },
           ],
         }),
       ],

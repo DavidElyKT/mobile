@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons';
 import PhotoPicker from '@/components/PhotoPicker';
 import { RATING_COLOURS, type RiskLevel } from '@/constants/risk';
 import CachedImage from '@/components/CachedImage';
+import RiskDefinitionsModal, { type RiskDefinitionTopic } from '@/components/RiskDefinitionsModal';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +52,8 @@ export interface WizardStep {
   searchable?: boolean;
   getSuggestions?: (value: string, data: Record<string, any>) => WizardSuggestion[];
   computeBadge?: (data: Record<string, any>) => { rating: RiskLevel | null; score: number | null };
+  /** Shows a link to the risk rating definitions sheet under the question. */
+  helpTopic?: RiskDefinitionTopic;
   photoLabel?: string;
 }
 
@@ -153,6 +156,7 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [definitionsTopic, setDefinitionsTopic] = useState<RiskDefinitionTopic | null>(null);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;
@@ -632,6 +636,17 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
             <Text style={styles.question}>{def.question}</Text>
             {def.subtext ? <Text style={styles.subtext}>{def.subtext}</Text> : null}
 
+            {def.helpTopic ? (
+              <Pressable
+                style={styles.helpLink}
+                onPress={() => setDefinitionsTopic(def.helpTopic!)}
+                hitSlop={8}
+              >
+                <Feather name="info" size={14} color={DK.orange} />
+                <Text style={styles.helpLinkText}>What do these mean?</Text>
+              </Pressable>
+            ) : null}
+
             {renderField()}
 
             {/* Inline suggestions */}
@@ -698,6 +713,12 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
             </View>
           </View>
         )}
+
+        <RiskDefinitionsModal
+          visible={definitionsTopic !== null}
+          topic={definitionsTopic ?? 'severity'}
+          onClose={() => setDefinitionsTopic(null)}
+        />
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -786,6 +807,18 @@ const styles = StyleSheet.create({
     color: DK.textMuted,
     lineHeight: 22,
     marginBottom: 16,
+  },
+  helpLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginBottom: 16,
+  },
+  helpLinkText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: DK.orange,
   },
 
   // Card container

@@ -115,6 +115,10 @@ export default function NotepadScreen() {
 
   const [body, setBody] = useState('');
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  // The un-annotated copy, set only when the assessor actually drew on the
+  // photo. Annotation flattens the strokes into `photoUri`, so this is the only
+  // clean image left; null means it was never drawn on.
+  const [photoOriginalUri, setPhotoOriginalUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [editing, setEditing] = useState<NotepadNote | null>(null);
@@ -303,6 +307,7 @@ export default function NotepadScreen() {
           note.ceProjectId = job.kind === 'ce' ? job.id : null;
           note.body = body.trim() || null;
           note.photoUrl = photoUri;
+          note.photoOriginalUrl = photoOriginalUri;
           note.capturedAt = capturedAt;
           note.isSynced = false;
         }),
@@ -320,8 +325,22 @@ export default function NotepadScreen() {
         });
       }
 
+      // A second, independent upload. It is in DEFERRABLE_PHOTO_FIELDS, so a
+      // failure here delays the clean copy without holding the note itself off
+      // the desk, and the server column is write-once so a late arrival still
+      // wins.
+      if (photoOriginalUri?.startsWith('file://')) {
+        await enqueuePhoto({
+          localUri: photoOriginalUri,
+          collection: 'notepad_notes',
+          recordId: created.id,
+          field: 'photo_original_url',
+        });
+      }
+
       setBody('');
       setPhotoUri(null);
+      setPhotoOriginalUri(null);
       // Best effort: a sync that cannot run leaves the entry pending, which is
       // the normal offline state and not an error worth showing.
       void triggerSync();
@@ -330,6 +349,38 @@ export default function NotepadScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * Which photo the original belongs to matters as much as keeping it.
+   *
+   * The four cases are the same ones risk-evaluations/edit.tsx works through,
+   * and they are not interchangeable: the wrong branch either throws away a
+   * clean copy or keeps one that shows a different scene entirely.
+   */
+  function handlePhotoUploaded(uri: string, originalUri?: string) {
+    const previousPhoto = photoUri;
+    setPhotoUri(uri);
+
+    if (uri === previousPhoto) {
+      // Skip pressed on the photo already in the composer. Nothing changed.
+      return;
+    }
+    if (!originalUri) {
+      // A fresh capture, left un-annotated. Any original held from the photo it
+      // replaced is of a different subject now, so it has to go.
+      setPhotoOriginalUri(null);
+      return;
+    }
+    if (originalUri === previousPhoto) {
+      // Re-annotating what is already in the composer. That image may itself be
+      // annotated, so the clean copy taken the FIRST time is the one to keep —
+      // the same write-once rule the server applies on push.
+      setPhotoOriginalUri(prev => prev ?? originalUri);
+      return;
+    }
+    // A fresh capture, annotated. Its own clean version is the original.
+    setPhotoOriginalUri(originalUri);
   }
 
   function handleEdit(note: NotepadNote) {
@@ -425,18 +476,23 @@ export default function NotepadScreen() {
                 placeholderTextColor={Colors.textLight}
                 multiline
               />
-              {/* onAnnotationRequest is passed to BYPASS the annotation modal:
-                  a scratchpad photo is a record of what was there, and drawing
-                  on it belongs to the hazard it eventually becomes. */}
+              {/* onAnnotationRequest is NOT passed, so the pencil opens the
+                  annotation modal for real. The composer is plain screen
+                  content, not a Modal, so there is no nested-Modal problem to
+                  dodge here. Annotation flattens, so handlePhotoUploaded keeps
+                  the clean copy in photoOriginalUri (schema v17 /
+                  migration 056). */}
               <PhotoPicker
                 label="Add photo"
                 currentUrl={photoUri}
-                onUploaded={uri => setPhotoUri(uri)}
-                onAnnotationRequest={uri => setPhotoUri(uri)}
+                onUploaded={handlePhotoUploaded}
               />
               <View style={styles.composerActions}>
                 {photoUri ? (
-                  <Pressable style={styles.clearPhotoBtn} onPress={() => setPhotoUri(null)}>
+                  <Pressable
+                    style={styles.clearPhotoBtn}
+                    onPress={() => { setPhotoUri(null); setPhotoOriginalUri(null); }}
+                  >
                     <Feather name="x" size={14} color={Colors.textMuted} />
                     <Text style={styles.clearPhotoText}>Remove photo</Text>
                   </Pressable>

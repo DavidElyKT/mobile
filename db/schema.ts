@@ -33,9 +33,14 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      entry is dragged into a real field. ce_projects arrives for one reason only —
 //      a note can be taken on a CE job, and CE marking is otherwise desktop-only,
 //      so without the register the job picker could not name one.
+// v17: notepad_notes.photo_original_url — the un-annotated copy of a notepad
+//      photo. Annotating flattens the strokes into photo_url, so without this
+//      the clean image is destroyed the moment the assessor draws on it. Matches
+//      risk_evaluations / control_reviews (v12), and the server column is
+//      write-once (migration 056).
 
 export default appSchema({
-  version: 16,
+  version: 17,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -402,6 +407,11 @@ export default appSchema({
         { name: 'ce_project_id', type: 'string', isOptional: true },       // local UUID of ce_project
         { name: 'body',          type: 'string', isOptional: true },
         { name: 'photo_url',     type: 'string', isOptional: true },
+        // The un-annotated copy, set only when the assessor actually drew on
+        // the photo. Annotation flattens the strokes into photo_url, so this is
+        // the only clean image left; NULL means "never drawn on", which is why
+        // it is not backfilled from photo_url.
+        { name: 'photo_original_url', type: 'string', isOptional: true },
         // When the assessor wrote it, which is not created_at once a note is
         // typed in a blackspot and reaches the server hours later.
         { name: 'captured_at',   type: 'string' },

@@ -256,6 +256,10 @@ const PHOTO_FIELDS: Record<string, string[]> = {
 const DEFERRABLE_PHOTO_FIELDS: Record<string, string[]> = {
   risk_evaluations: ['photo_original_url'],
   control_reviews:  ['photo_original_url'],
+  // Same reasoning on the notepad: the entry IS its annotated photo, and the
+  // clean copy is a bonus. Holding a whole note off the desk because the
+  // second upload failed would lose the assessor the thing they wrote.
+  notepad_note:     ['photo_original_url'],
 };
 
 /**
@@ -444,6 +448,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'ce_project_id',
     'body',
     'photo_url',
+    'photo_original_url',
     'captured_at',
     // Readable, never writable — the server drops all three on push. They are
     // here so the phone can show whose note it is and that it has been used.

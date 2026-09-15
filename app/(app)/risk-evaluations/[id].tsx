@@ -10,6 +10,7 @@ import { useDemoMode } from '@/context/DemoModeContext';
 import { RiskEvaluationsApi } from '@/services/api';
 import { RATING_COLOURS, parseHazardCategories, parseHazardousMovementTypes, type RiskLevel } from '@/constants/risk';
 import { Colors } from '@/constants/Colors';
+import { RiskDefinitionsButton } from '@/components/RiskDefinitionsModal';
 import { isDemoSite } from '@/utils/demoMode';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
@@ -312,12 +313,18 @@ function RiskBlock({ label, severity, probability, rating }: {
       <Text style={[styles.ratingText, { color: colour }]}>{rating || 'Not set'}</Text>
       <View style={styles.riskMeta}>
         <View style={styles.riskMetaItem}>
-          <Text style={styles.riskMetaLabel}>Severity</Text>
+          <View style={styles.riskMetaLabelRow}>
+            <Text style={styles.riskMetaLabel}>Severity</Text>
+            <RiskDefinitionsButton topic="severity" colour={Colors.textLight} />
+          </View>
           <Text style={styles.riskMetaValue}>{severity || 'Not set'}</Text>
         </View>
         <View style={styles.riskMetaDivider} />
         <View style={styles.riskMetaItem}>
-          <Text style={styles.riskMetaLabel}>Probability</Text>
+          <View style={styles.riskMetaLabelRow}>
+            <Text style={styles.riskMetaLabel}>Probability</Text>
+            <RiskDefinitionsButton topic="probability" colour={Colors.textLight} />
+          </View>
           <Text style={styles.riskMetaValue}>{probability || 'Not set'}</Text>
         </View>
       </View>
@@ -416,6 +423,7 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   riskMetaItem: { flex: 1, alignItems: 'center' },
+  riskMetaLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   riskMetaLabel: { fontSize: 13, color: Colors.textMuted, marginBottom: 5, fontWeight: '600' },
   riskMetaValue: { fontSize: 17, fontWeight: '600', color: Colors.text },
   riskMetaDivider: { width: 1, backgroundColor: Colors.border },
