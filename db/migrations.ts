@@ -72,6 +72,22 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 //             deliberately not backfilled from photo_url: NULL is the truthful
 //             answer for a photo that was never annotated, and copying across
 //             would make the column unable to say which is which.
+// v17 → v18: asset_model_capture_sets — a subject's 3D model photos
+//             (MESH_PLAN §4). One row per asset or sub-machine: the record
+//             photo mirrored in as the front, plus up to three supplementary
+//             angles. A table of its own rather than columns on `machines`
+//             because these are inputs to a generator, not part of the asset
+//             register that every other screen reads.
+// v18 → v19: clear asset_model_capture_sets. v18 reached test devices with a
+//             'Draft'/'Complete' lifecycle that the server-side migration no
+//             longer allows, and with a `file://` mirror in shot_front_url that
+//             stopped the rows syncing at all. A device holding one of those
+//             rows cannot see it (the new code looks for 'Active'), so it
+//             writes a SECOND row for the same subject — and the server rejects
+//             that on either the status CHECK or the one-per-subject unique
+//             index, taking the whole push down with it. Emptying the table is
+//             safe: nothing was ever accepted server-side, and the record photo
+//             each row pointed at is untouched on its asset.
 
 export default schemaMigrations({
   migrations: [
@@ -544,6 +560,40 @@ export default schemaMigrations({
             { name: 'photo_original_url', type: 'string', isOptional: true },
           ],
         }),
+      ],
+    },
+    // The four-shot 3D capture set (MESH_PLAN §4). Server side this is
+    // migration 072, which MUST be run before a build carrying this schema
+    // reaches a phone: the device starts pushing sets as soon as one is shot,
+    // and a push against a database without the table fails whole.
+    {
+      toVersion: 18,
+      steps: [
+        createTable({
+          name: 'asset_model_capture_sets',
+          columns: [
+            { name: 'server_id',      type: 'number', isOptional: true },
+            { name: 'assembly_id',    type: 'string' },
+            { name: 'machine_id',     type: 'string', isOptional: true },
+            { name: 'status',         type: 'string' },
+            { name: 'shot_front_url', type: 'string', isOptional: true },
+            { name: 'shot_left_url',  type: 'string', isOptional: true },
+            { name: 'shot_right_url', type: 'string', isOptional: true },
+            { name: 'shot_rear_url',  type: 'string', isOptional: true },
+            { name: 'note',           type: 'string', isOptional: true },
+            { name: 'captured_by',    type: 'number', isOptional: true },
+            { name: 'captured_at',    type: 'string' },
+            { name: 'is_synced',      type: 'boolean' },
+            { name: 'created_at',     type: 'number' },
+            { name: 'updated_at',     type: 'number' },
+          ],
+        }),
+      ],
+    },
+    {
+      toVersion: 19,
+      steps: [
+        unsafeExecuteSql('DELETE FROM asset_model_capture_sets;'),
       ],
     },
   ],

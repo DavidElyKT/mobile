@@ -97,6 +97,7 @@ const WRITABLE_COLLECTIONS = [
   'risk_evaluations',
   // ce_projects is pull-only and can never be pending.
   'notepad_notes',
+  'asset_model_capture_sets',
 ] as const;
 
 /** Count of records that have been written locally but not yet pushed to the server. */
@@ -133,6 +134,7 @@ const TABLE_MAP: Record<string, string> = {
   control_reviews:       'control_reviews',
   ce_project:            'ce_projects',
   notepad_note:          'notepad_notes',
+  asset_model_capture_sets: 'asset_model_capture_sets',
 };
 
 /**
@@ -162,6 +164,9 @@ const PUSH_ORDER = [
   // have a server id before it can name it. ce_project is absent on purpose —
   // the device reads the CE job register and never adds to it.
   'notepad_note',
+  // After `machines` and `assemblies`: a four-shot set photographed on an asset
+  // registered the same morning waits for that asset to have a server id.
+  'asset_model_capture_sets',
 ] as const;
 
 /**
@@ -220,6 +225,10 @@ const FK_FIELDS: Record<string, Record<string, string>> = {
     site_id:       'sites',
     ce_project_id: 'ce_projects',
   },
+  asset_model_capture_sets: {
+    assembly_id: 'assemblies',
+    machine_id:  'machines',
+  },
 };
 
 /**
@@ -240,6 +249,22 @@ const PHOTO_FIELDS: Record<string, string[]> = {
   // desk as a note that never had one, and there is nothing else in the row to
   // say otherwise.
   notepad_note:        ['photo_url'],
+  // The three supplementary angles, and no deferrable half: the row IS its
+  // photographs, and one that reached the server with two of them would be
+  // generated from two. There is nothing else in it to say the others were
+  // only late.
+  //
+  // `shot_front_url` is NOT here, and that is the fix for a live bug rather
+  // than an oversight. Nothing writes it — the front is the record photo,
+  // derived server-side (services/modelPhotos.ts). While it was mirrored here
+  // it held a `file://` URI the device could never replace, because the front
+  // uploads as the ASSET's photo and not as one of these, and this list then
+  // held the row back from every push for ever.
+  asset_model_capture_sets: [
+    'shot_left_url',
+    'shot_right_url',
+    'shot_rear_url',
+  ],
 };
 
 /**
@@ -442,6 +467,27 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'created_at',
     'updated_at',
   ],
+  asset_model_capture_sets: [
+    'assembly_id',
+    'machine_id',
+    'status',
+    // `shot_front_url` is deliberately ABSENT. The front is the record photo,
+    // derived server-side, and the column is a server-side override nothing
+    // writes. Leaving it here would let a device that installed the first build
+    // push the stale `file://` URI it still holds — and an explicit front WINS
+    // over the record photo, so the next generation would try to download a
+    // path on somebody's phone.
+    'shot_left_url',
+    'shot_right_url',
+    'shot_rear_url',
+    'note',
+    // Readable, never writable: stamped from the caller's token server-side, so
+    // a device cannot file a colleague's capture.
+    'captured_by',
+    'captured_at',
+    'created_at',
+    'updated_at',
+  ],
   notepad_note: [
     'job_kind',
     'site_id',
@@ -620,6 +666,7 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     control_reviews:       { round_id: 'control_review_rounds', eval_id: 'risk_evaluations' },
     sites:                 { customer_id: 'customers' },
     notepad_note:          { site_id: 'sites', ce_project_id: 'ce_projects' },
+    asset_model_capture_sets: { assembly_id: 'assemblies', machine_id: 'machines' },
   };
 
   // Resolve any integer FK values in a fields object to local UUIDs.
@@ -777,7 +824,11 @@ export async function pushToServer(getAccessToken: () => Promise<string | null>)
   // local UUID → WatermelonDB record, for updating serverId after push
   const createdRecordsByTable: Record<string, Map<string, any>> = {};
   // Snapshot of each pushed record, used to avoid stale "mark synced" races.
-  const pushedRecords: Array<{ collectionName: string; recordId: string; snapshot: string }> = [];
+  // `serverTable` rides along so records the server DEFERRED can be left
+  // pending — see the deferred_tables handling below.
+  const pushedRecords: Array<{
+    collectionName: string; recordId: string; snapshot: string; serverTable: string;
+  }> = [];
 
   for (const serverTable of PUSH_ORDER) {
     const collectionName = TABLE_MAP[serverTable];
@@ -853,6 +904,7 @@ export async function pushToServer(getAccessToken: () => Promise<string | null>)
         collectionName,
         recordId: record.id,
         snapshot,
+        serverTable,
       });
     }
 
@@ -889,10 +941,21 @@ export async function pushToServer(getAccessToken: () => Promise<string | null>)
     });
   }
 
+  // Tables the server could not accept — its migration has not run, or this API
+  // predates the table entirely. Those records stay PENDING: marking them synced
+  // would lose them silently, which is the one outcome worse than waiting.
+  const deferred = new Set(response.deferred_tables ?? []);
+  if (deferred.size) {
+    console.warn(
+      `[Sync] Server deferred ${[...deferred].join(', ')} — keeping those records pending`,
+    );
+  }
+
   // Mark only unchanged pushed records as synced. If a record changed while push
   // was in flight, keep it unsynced so the next push sends the latest state.
   const refsByCollection = new Map<string, Set<string>>();
   for (const ref of pushedRecords) {
+    if (deferred.has(ref.serverTable)) continue;
     if (!refsByCollection.has(ref.collectionName)) {
       refsByCollection.set(ref.collectionName, new Set());
     }
@@ -1013,6 +1076,7 @@ function _pkFor(table: string): string {
     control_reviews:       'control_review_id',
     ce_project:            'ce_project_id',
     notepad_note:          'note_id',
+    asset_model_capture_sets: 'capture_set_id',
   };
   return pkMap[table] ?? 'id';
 }

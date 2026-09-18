@@ -38,9 +38,19 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      the clean image is destroyed the moment the assessor draws on it. Matches
 //      risk_evaluations / control_reviews (v12), and the server column is
 //      write-once (migration 056).
+// v19: asset_model_capture_sets emptied — v18 reached test devices with a
+//      lifecycle and a front-photo mirror that the server no longer accepts,
+//      and a stale row there fails the whole sync push. See db/migrations.ts.
+// v18: asset_model_capture_sets — a subject's 3D model photos (MESH_PLAN §4).
+//      ONE row per asset or sub-machine holding up to four pictures: front,
+//      left, right, back. The FRONT is the record photo, mirrored in, because
+//      an assessor photographs a machine once; the other three are optional
+//      supplementary angles taken in the same breath. A table rather than three
+//      more columns on `machines` because these are inputs to a generator, not
+//      part of the asset register everything else reads.
 
 export default appSchema({
-  version: 17,
+  version: 19,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -421,6 +431,48 @@ export default appSchema({
         { name: 'is_synced',     type: 'boolean' },
         { name: 'created_at',    type: 'number' },
         { name: 'updated_at',    type: 'number' },
+      ],
+    }),
+    // -----------------------------------------------------------------------
+    // A subject's 3D model photos (v18). MESH_PLAN §4.
+    //
+    // One row per asset or sub-machine: front, left, right, back. The FRONT is
+    // that record's own picture_url, mirrored here — the other three are
+    // optional. The back is the one that earns the extra walk: on most plant
+    // the isolator is round the back, and a model that has never seen the back
+    // INVENTS it.
+    //
+    // The device CAPTURES; it never generates. Generation costs credits per
+    // click and stays a deliberate action on the desktop (MESH_PLAN §7), which
+    // is also the only place anybody is watching the job it starts.
+    //
+    // Exactly one subject: machine_id for a sub-machine, or assembly_id alone
+    // for an asset photographed as a whole. Both carry picture_url on the
+    // server and both are worth a proxy.
+    // -----------------------------------------------------------------------
+    tableSchema({
+      name: 'asset_model_capture_sets',
+      columns: [
+        { name: 'server_id',      type: 'number', isOptional: true },
+        { name: 'assembly_id',    type: 'string' },                      // local UUID of assembly
+        { name: 'machine_id',     type: 'string', isOptional: true },    // local UUID of sub-machine
+        // 'Active' or 'Discarded' — the same two states asset_models uses.
+        { name: 'status',         type: 'string' },
+        // In the order they are sent to the provider. The first image is the
+        // primary front view, so the order is data, not presentation, and it
+        // mirrors the record photo rather than being shot separately.
+        { name: 'shot_front_url', type: 'string', isOptional: true },
+        { name: 'shot_left_url',  type: 'string', isOptional: true },
+        { name: 'shot_right_url', type: 'string', isOptional: true },
+        { name: 'shot_rear_url',  type: 'string', isOptional: true },
+        // What the desk needs to know before generating: "rear blocked by
+        // services", "guard removed for the third shot".
+        { name: 'note',           type: 'string', isOptional: true },
+        { name: 'captured_by',    type: 'number', isOptional: true },    // server-owned
+        { name: 'captured_at',    type: 'string' },
+        { name: 'is_synced',      type: 'boolean' },
+        { name: 'created_at',     type: 'number' },
+        { name: 'updated_at',     type: 'number' },
       ],
     }),
   ],

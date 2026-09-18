@@ -24,6 +24,8 @@ import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import CachedImage from '@/components/CachedImage';
+import ModelShots from '@/components/ModelShots';
+import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 
 export default function MachineDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -52,6 +54,24 @@ export default function MachineDetailScreen() {
   const [removingMarker, setRemovingMarker] = useState(false);
   const heroPhotoRef = useRef<PhotoPickerRef>(null);
   const hiddenByDemoMode = !!site && isDemoMode && !isDemoSite(site);
+  // Persisted as they change here, unlike the create and edit forms, because
+  // this screen has no Save button to hang them off.
+  const [modelShots, setModelShots] = useState<SupplementaryShots>(NO_SHOTS);
+
+  useEffect(() => {
+    if (!machine || !assembly) return;
+    let alive = true;
+    loadSupplementaryShots(db, { assemblyId: assembly.id, machineId: machine.id })
+      .then(shots => { if (alive) setModelShots(shots); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [machine?.id, assembly?.id]);
+
+  async function handleModelShotsChange(next: SupplementaryShots) {
+    if (!machine || !assembly) return;
+    setModelShots(next);
+    await saveModelPhotos(db, { assemblyId: assembly.id, machineId: machine.id }, next);
+  }
 
   useEffect(() => {
     if (!machine) return;
@@ -317,6 +337,19 @@ export default function MachineDetailScreen() {
           )}
         </View>
 
+        {/* The other three sides of the 3D proxy. The hero photo above is the
+            front, so this is never a second capture — just the angles it is
+            missing, added whenever the assessor is next stood here. */}
+        {assembly ? (
+          <View style={styles.modelShotsCard}>
+            <ModelShots
+              frontUrl={machine.pictureUrl}
+              value={modelShots}
+              onChange={handleModelShotsChange}
+            />
+          </View>
+        ) : null}
+
         {/* Risk evaluations associated with this sub-machine */}
         <View style={styles.riskCard}>
           <View style={styles.riskHead}>
@@ -432,6 +465,15 @@ export default function MachineDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  modelShotsCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 13,
+    paddingBottom: 13,
+    paddingTop: 3,
+  },
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 19, paddingBottom: 48, gap: 19 },
   heroWrap: {

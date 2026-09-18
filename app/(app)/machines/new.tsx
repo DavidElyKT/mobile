@@ -11,6 +11,8 @@ import { useDemoMode } from '@/context/DemoModeContext';
 import { enqueuePhoto } from '@/services/photoQueue';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import ModelShots from '@/components/ModelShots';
+import { saveModelPhotos, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { isDemoSite } from '@/utils/demoMode';
 import Machine from '@/db/models/Machine.model';
@@ -27,6 +29,9 @@ export default function NewMachineScreen() {
   const db = useDatabase();
   const { isDemoMode } = useDemoMode();
   const [blockedByDemoMode, setBlockedByDemoMode] = useState(false);
+  // The three supplementary angles for a 3D proxy. Held here until the
+  // sub-machine exists, because there is nothing to attach them to until it does.
+  const [modelShots, setModelShots] = useState<SupplementaryShots>(NO_SHOTS);
   const [nameRef, setNameRef] = useState('');
   const [machineCategory, setMachineCategory] = useState('');
   const [machineUse, setMachineUse] = useState('');
@@ -126,6 +131,32 @@ export default function NewMachineScreen() {
       photoLabel: 'Machine Photo',
       skippable: true,
     },
+    // The three supplementary angles for a 3D proxy, immediately after the
+    // machine photo — which IS the front view. All skippable: most machines
+    // never get a mesh, and the ones that do are decided at the desk.
+    {
+      key: 'modelLeftUrl',
+      type: 'photo',
+      question: 'Step left and take another',
+      subtext: 'Optional. Extra angles let a 3D model be built from these photos.',
+      photoLabel: 'Left',
+      skippable: true,
+    },
+    {
+      key: 'modelRightUrl',
+      type: 'photo',
+      question: 'Now from the right',
+      photoLabel: 'Right',
+      skippable: true,
+    },
+    {
+      key: 'modelRearUrl',
+      type: 'photo',
+      question: 'And the back, if you can reach it',
+      subtext: 'The side the isolator is usually on — a model that never sees it invents it.',
+      photoLabel: 'Back',
+      skippable: true,
+    },
     {
       key: 'nameplateUrl',
       type: 'photo',
@@ -141,6 +172,11 @@ export default function NewMachineScreen() {
       subtext: 'Mark its position on the floor plan.',
     }] : []),
   ], [categorySuggestions, useSuggestions, hasFloorPlans]);
+
+  // Wizard keys whose photos are GEOMETRY rather than evidence. They go
+  // straight back into the wizard without the annotation modal: a drawn arrow
+  // becomes a shape on the mesh.
+  const MODEL_SHOT_KEYS = new Set(['modelLeftUrl', 'modelRightUrl', 'modelRearUrl']);
 
   async function handleWizardPhotoRequest(type: 'camera' | 'library', key: string) {
     wizardRef.current?.skipNextReset();
@@ -171,8 +207,13 @@ export default function NewMachineScreen() {
         if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
         const localUri = dir + `photo_${Date.now()}.jpg`;
         await FileSystem.copyAsync({ from: result.assets[0].uri, to: localUri });
-        // Show annotation before reopening the wizard
-        setPendingAnnotation({ source: 'wizard', uri: localUri, key });
+        if (MODEL_SHOT_KEYS.has(key)) {
+          setFocusModeOpen(true);
+          setTimeout(() => wizardRef.current?.injectPhoto(key, localUri), 150);
+        } else {
+          // Show annotation before reopening the wizard
+          setPendingAnnotation({ source: 'wizard', uri: localUri, key });
+        }
       } else {
         setFocusModeOpen(true);
       }
@@ -223,6 +264,15 @@ export default function NewMachineScreen() {
     if (wizardData.nameplateUrl?.startsWith('file://')) {
       await enqueuePhoto({ localUri: wizardData.nameplateUrl, collection: 'machines', recordId: newMachine.id, field: 'nameplate_photo_url' });
     }
+    await saveModelPhotos(
+      db,
+      { assemblyId: newMachine.assemblyId, machineId: newMachine.id },
+      {
+        left: wizardData.modelLeftUrl || null,
+        right: wizardData.modelRightUrl || null,
+        rear: wizardData.modelRearUrl || null,
+      },
+    );
     return newMachine;
   }
 
@@ -351,6 +401,10 @@ export default function NewMachineScreen() {
       if (nameplateUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: nameplateUrl, collection: 'machines', recordId: newMachine.id, field: 'nameplate_photo_url' });
       }
+      // After the photo queue, so the front mirrors exactly what the machine got.
+      await saveModelPhotos(
+        db, { assemblyId: newMachine.assemblyId, machineId: newMachine.id }, modelShots,
+      );
       navigateToFloorPlan(newMachine.id, nameRef.trim());
     } catch (e: any) { setError(e.message); } finally { setSaving(false); }
   }
@@ -383,6 +437,10 @@ export default function NewMachineScreen() {
       if (nameplateUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: nameplateUrl, collection: 'machines', recordId: newMachine.id, field: 'nameplate_photo_url' });
       }
+      // After the photo queue, so the front mirrors exactly what the machine got.
+      await saveModelPhotos(
+        db, { assemblyId: newMachine.assemblyId, machineId: newMachine.id }, modelShots,
+      );
 
       setSavedName(nameRef.trim());
       setSavedMachineId(newMachine.id);
@@ -521,6 +579,11 @@ export default function NewMachineScreen() {
           onAnnotationRequest={(uri) => setPendingAnnotation({ source: 'form', uri, field: 'nameplateUrl' })} />
       </View>
 
+      {/* The machine photo is the FRONT of the 3D proxy; these are the other
+          three sides. Always shown, never gated on the photo above — a strip
+          that appears only after one is taken is a strip nobody discovers. */}
+      <ModelShots frontUrl={pictureUrl} value={modelShots} onChange={setModelShots} />
+
       {hasFloorPlans && (
         <>
           <Text style={styles.label}>Location</Text>
@@ -616,6 +679,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', gap: 10,
   },
   buttonSecondary: { backgroundColor: Colors.orange },
+  buttonNeutral: { backgroundColor: Colors.border },
   buttonDisabled: { opacity: 0.6 },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 19 },
   error: { color: Colors.danger, marginBottom: 10, fontSize: 17 },

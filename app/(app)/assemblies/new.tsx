@@ -13,6 +13,8 @@ import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 import { enqueuePhoto } from '@/services/photoQueue';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import ModelShots from '@/components/ModelShots';
+import { saveModelPhotos, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { isDemoSite } from '@/utils/demoMode';
 import Assembly from '@/db/models/Assembly.model';
@@ -27,6 +29,9 @@ export default function NewAssetScreen() {
   const db = useDatabase();
   const { isDemoMode } = useDemoMode();
   const [blockedByDemoMode, setBlockedByDemoMode] = useState(false);
+  // The three supplementary angles for a 3D proxy. Held here until the asset
+  // exists, because there is nothing to attach them to until it does.
+  const [modelShots, setModelShots] = useState<SupplementaryShots>(NO_SHOTS);
   const [pendingAnnotation, setPendingAnnotation] = useState<{ uri: string; field: 'pictureUrl' | 'nameplateUrl' } | null>(null);
 
   const [assetName, setAssetName] = useState('');
@@ -124,6 +129,8 @@ export default function NewAssetScreen() {
       if (assetType === 'standalone' && nameplateUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: nameplateUrl, collection: 'assemblies', recordId: newAssembly.id, field: 'nameplate_photo_url' });
       }
+      // After the photo queue, so the front mirrors exactly what the asset got.
+      await saveModelPhotos(db, { assemblyId: newAssembly.id }, modelShots);
       // Navigate directly to floor plan editor, bypassing post-save prompt
       await handleMarkLocationForAssembly(newAssembly);
     } catch (e: any) { setError(e.message); setSaving(false); }
@@ -184,6 +191,8 @@ export default function NewAssetScreen() {
       if (assetType === 'standalone' && nameplateUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: nameplateUrl, collection: 'assemblies', recordId: newAssembly.id, field: 'nameplate_photo_url' });
       }
+      // After the photo queue, so the front mirrors exactly what the asset got.
+      await saveModelPhotos(db, { assemblyId: newAssembly.id }, modelShots);
 
       if (assetType === 'assembly') {
         setSavedAssembly(newAssembly);
@@ -356,6 +365,11 @@ export default function NewAssetScreen() {
           />
         )}
       </View>
+
+      {/* The asset photo is the FRONT of the 3D proxy; these are the other
+          three sides. Always shown, never gated on the photo above — a strip
+          that appears only after one is taken is a strip nobody discovers. */}
+      <ModelShots frontUrl={pictureUrl} value={modelShots} onChange={setModelShots} />
 
       {hasFloorPlans && (
         <>

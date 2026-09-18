@@ -11,6 +11,8 @@ import { enqueuePhoto } from '@/services/photoQueue';
 import { useDemoMode } from '@/context/DemoModeContext';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import ModelShots from '@/components/ModelShots';
+import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { isDemoSite } from '@/utils/demoMode';
 import Assembly from '@/db/models/Assembly.model';
@@ -67,6 +69,18 @@ export default function EditAssetScreen() {
     })();
   }, [id, isDemoMode]);
 
+  // The three supplementary angles, loaded once the record is known so an
+  // existing set is edited rather than replaced.
+  const [modelShots, setModelShots] = useState<SupplementaryShots>(NO_SHOTS);
+  useEffect(() => {
+    if (!assembly) return;
+    let alive = true;
+    loadSupplementaryShots(db, { assemblyId: assembly.id })
+      .then(shots => { if (alive) setModelShots(shots); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [assembly?.id]);
+
   async function handleSave() {
     if (!assetName.trim() || !assembly) { setError('Asset name is required.'); return; }
     setSaving(true);
@@ -92,6 +106,7 @@ export default function EditAssetScreen() {
       if (nameplateUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: nameplateUrl, collection: 'assemblies', recordId: assembly.id, field: 'nameplate_photo_url' });
       }
+      await saveModelPhotos(db, { assemblyId: assembly.id }, modelShots);
       router.back();
     } catch (e: any) { setError(e.message); setSaving(false); }
   }
@@ -211,6 +226,8 @@ export default function EditAssetScreen() {
           />
         )}
       </View>
+
+      <ModelShots frontUrl={pictureUrl} value={modelShots} onChange={setModelShots} />
 
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
         {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}

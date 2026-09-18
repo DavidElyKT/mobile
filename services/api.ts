@@ -370,7 +370,14 @@ export const SyncApi = {
     ),
 
   push: (token: string, changes: object) =>
-    request<{ ok: boolean; id_map?: Record<string, Array<{ local_id: string; server_id: number }>> }>(
+    request<{
+      ok: boolean;
+      id_map?: Record<string, Array<{ local_id: string; server_id: number }>>;
+      /** Tables this API could not accept — its migration has not run, or it
+       *  predates the table. Those records stay pending on the device rather
+       *  than being marked synced and lost. Absent on an older API. */
+      deferred_tables?: string[];
+    }>(
       '/sync/push', token, {
         method: 'POST',
         body: JSON.stringify({ changes }),

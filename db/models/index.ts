@@ -22,3 +22,6 @@ export type { ControlReviewOutcome } from './ControlReview.model';
 export { default as CEProject } from './CEProject.model';
 export { default as NotepadNote } from './NotepadNote.model';
 export type { NotepadJobKind } from './NotepadNote.model';
+export { default as AssetModelCaptureSet } from './AssetModelCaptureSet.model';
+export type { CaptureSetStatus, CaptureAngle } from './AssetModelCaptureSet.model';
+export { CAPTURE_ANGLES } from './AssetModelCaptureSet.model';

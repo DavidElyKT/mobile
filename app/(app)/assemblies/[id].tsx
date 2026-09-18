@@ -19,6 +19,8 @@ import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { RATING_COLOURS, type RiskLevel } from '@/constants/risk';
 import { Colors } from '@/constants/Colors';
 import { isDemoSite } from '@/utils/demoMode';
+import ModelShots from '@/components/ModelShots';
+import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import Assembly from '@/db/models/Assembly.model';
 import Machine from '@/db/models/Machine.model';
 import ChecklistInstance from '@/db/models/ChecklistInstance.model';
@@ -60,6 +62,24 @@ export default function AssetDetailScreen() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [removingMarker, setRemovingMarker] = useState(false);
+  // Persisted as they change here, unlike the create and edit forms, because
+  // this screen has no Save button to hang them off.
+  const [modelShots, setModelShots] = useState<SupplementaryShots>(NO_SHOTS);
+
+  useEffect(() => {
+    if (!assembly) return;
+    let alive = true;
+    loadSupplementaryShots(db, { assemblyId: assembly.id })
+      .then(shots => { if (alive) setModelShots(shots); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [assembly?.id]);
+
+  async function handleModelShotsChange(next: SupplementaryShots) {
+    if (!assembly) return;
+    setModelShots(next);
+    await saveModelPhotos(db, { assemblyId: assembly.id }, next);
+  }
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
     machines: true, checklists: true, riskEvals: true,
   });
@@ -386,6 +406,17 @@ export default function AssetDetailScreen() {
             })
           )}
         </View>
+
+        {/* The other three sides of the 3D proxy. Offered on the ASSET as well
+            as on each sub-machine because a standalone asset is frequently the
+            only thing there is to photograph (MESH_PLAN M2). */}
+        <View style={styles.modelShotsCard}>
+          <ModelShots
+            frontUrl={assembly!.pictureUrl}
+            value={modelShots}
+            onChange={handleModelShotsChange}
+          />
+        </View>
       </>
     );
   }
@@ -637,6 +668,15 @@ export default function AssetDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  modelShotsCard: {
+    backgroundColor: Colors.card,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingHorizontal: 13,
+    paddingBottom: 13,
+    paddingTop: 3,
+  },
   container: { flex: 1, backgroundColor: Colors.background },
   heroImage: { width: '100%', height: 264, borderRadius: 14, marginTop: 14, marginBottom: 5 },
   nameplateImage: { width: '100%', height: 192, borderRadius: 10, marginTop: 14 },

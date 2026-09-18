@@ -9,6 +9,8 @@ import { enqueuePhoto } from '@/services/photoQueue';
 import { useDemoMode } from '@/context/DemoModeContext';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import ModelShots from '@/components/ModelShots';
+import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { isDemoSite } from '@/utils/demoMode';
 import Machine from '@/db/models/Machine.model';
@@ -76,6 +78,18 @@ export default function EditMachineScreen() {
     })();
   }, [db, id, isDemoMode]);
 
+  // The three supplementary angles, loaded once the record is known so an
+  // existing set is edited rather than replaced.
+  const [modelShots, setModelShots] = useState<SupplementaryShots>(NO_SHOTS);
+  useEffect(() => {
+    if (!machine) return;
+    let alive = true;
+    loadSupplementaryShots(db, { assemblyId: machine.assemblyId, machineId: machine.id })
+      .then(shots => { if (alive) setModelShots(shots); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [machine?.id]);
+
   async function handleSave() {
     if (!nameRef.trim() || !machine) { setError('Machine name/reference is required.'); return; }
     setSaving(true);
@@ -101,6 +115,9 @@ export default function EditMachineScreen() {
       if (nameplateUrl?.startsWith('file://')) {
         await enqueuePhoto({ localUri: nameplateUrl, collection: 'machines', recordId: machine.id, field: 'nameplate_photo_url' });
       }
+      await saveModelPhotos(
+        db, { assemblyId: machine.assemblyId, machineId: machine.id }, modelShots,
+      );
       router.back();
     } catch (e: any) { setError(e.message); setSaving(false); }
   }
@@ -195,6 +212,8 @@ export default function EditMachineScreen() {
         <PhotoPicker label="Nameplate" currentUrl={nameplateUrl} onUploaded={setNameplateUrl}
           onAnnotationRequest={(uri) => setPendingAnnotation({ uri, field: 'nameplateUrl' })} />
       </View>
+
+      <ModelShots frontUrl={pictureUrl} value={modelShots} onChange={setModelShots} />
 
       <Pressable style={[styles.button, saving && styles.buttonDisabled]} onPress={handleSave} disabled={saving}>
         {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Save Changes</Text>}
