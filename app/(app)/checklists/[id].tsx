@@ -183,10 +183,18 @@ export default function ChecklistDetailScreen() {
           .query(Q.where('question_set_id', Q.oneOf(setUUIDs)))
           .fetch();
 
+        // A retired question shows only where this checklist answered it
+        const answered = new Set(
+          (await db.get<ChecklistResponse>('checklist_responses')
+            .query(Q.where('checklist_id', checklist.id))
+            .fetch()).map(r => r.questionId),
+        );
+
         // Deduplicate by server_id
         const seen = new Set<number>();
         const unique: Question[] = [];
         for (const q of allQs) {
+          if (q.isRetired && !answered.has(q.id)) continue;
           const sid = q.serverId ?? 0;
           if (!seen.has(sid)) { seen.add(sid); unique.push(q); }
         }
@@ -490,7 +498,7 @@ export default function ChecklistDetailScreen() {
                   style={[styles.tab, active && styles.tabActive]}
                   onPress={() => goToReg(reg)}
                 >
-                  <Text style={[styles.tabText, active && styles.tabTextActive]}>Reg {reg}</Text>
+                  <Text style={[styles.tabText, active && styles.tabTextActive]}>{regTabLabel(reg)}</Text>
                   <View style={[styles.tabBadge, allDone ? styles.tabBadgeDone : styles.tabBadgePending]}>
                     <Text style={[styles.tabBadgeText, allDone && styles.tabBadgeTextDone]}>
                       {regAnswered}/{regQuestions.length}
@@ -773,6 +781,12 @@ export default function ChecklistDetailScreen() {
   );
 }
 
+
+// Regulation 1 holds the cross-regulation Maintenance, Procedures & Training
+// block (migration 074), not PUWER Reg 1.
+function regTabLabel(reg: number) {
+  return reg === 1 ? 'General' : `Reg ${reg}`;
+}
 
 function answerSelectedStyle(opt: Answer) {
   if (opt === 'Yes') return styles.selectedYes;

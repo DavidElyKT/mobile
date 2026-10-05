@@ -88,6 +88,8 @@ import { schemaMigrations, addColumns, createTable, unsafeExecuteSql } from '@no
 //             index, taking the whole push down with it. Emptying the table is
 //             safe: nothing was ever accepted server-side, and the record photo
 //             each row pointed at is untouched on its asset.
+// v19 → v20: question_sets.is_default (pre-selected, assessor can switch off)
+//             and questions.is_retired (hidden unless the checklist answered it).
 
 export default schemaMigrations({
   migrations: [
@@ -594,6 +596,20 @@ export default schemaMigrations({
       toVersion: 19,
       steps: [
         unsafeExecuteSql('DELETE FROM asset_model_capture_sets;'),
+      ],
+    },
+    // Server migration 074. Both arrive on the next pull (static tables).
+    {
+      toVersion: 20,
+      steps: [
+        addColumns({
+          table: 'question_sets',
+          columns: [{ name: 'is_default', type: 'boolean', isOptional: true }],
+        }),
+        addColumns({
+          table: 'questions',
+          columns: [{ name: 'is_retired', type: 'boolean', isOptional: true }],
+        }),
       ],
     },
   ],

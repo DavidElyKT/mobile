@@ -58,11 +58,11 @@ export default function NewChecklistScreen() {
         .fetch();
 
       setQuestionSets(sets);
-      // Pre-select: base sets for assembly, all sets for site
+      // Pre-select: base + default-on sets for assembly, all sets for site
       setSelectedSetIds(
         isSiteChecklist
           ? sets.map(s => s.id)
-          : sets.filter(s => s.isBase).map(s => s.id),
+          : sets.filter(s => s.isBase || s.isDefault).map(s => s.id),
       );
       setLoading(false);
     })();
@@ -169,7 +169,7 @@ export default function NewChecklistScreen() {
               {locked ? (
                 <Text style={styles.requiredTag}>Always required</Text>
               ) : (
-                <Text style={styles.optionalTag}>Optional</Text>
+                <Text style={styles.optionalTag}>{set.isDefault ? 'Included by default' : 'Optional'}</Text>
               )}
             </View>
             <View style={[styles.checkbox, selected && styles.checkboxSelected]}>

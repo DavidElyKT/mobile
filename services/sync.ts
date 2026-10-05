@@ -377,6 +377,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'set_name',
     'description',
     'is_base',
+    'is_default',
     'applies_to',
     'framework_id',
     'created_at',
@@ -389,6 +390,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'regulation_number',
     'q_index',
     'pinned_note',
+    'is_retired',
   ],
   checklist_instances: [
     'assembly_id',

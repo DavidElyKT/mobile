@@ -16,6 +16,7 @@ export default class Question extends Model {
   @field('regulation_number') declare regulationNumber: number;
   @field('q_index') declare qIndex: number;
   @field('pinned_note') declare pinnedNote: string | null;
+  @field('is_retired') declare isRetired: boolean | null;
 
   @relation('question_sets', 'question_set_id') declare questionSet: QuestionSet;
 }

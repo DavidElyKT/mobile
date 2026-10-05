@@ -14,6 +14,7 @@ export default class QuestionSet extends Model {
   @field('set_name') declare setName: string;
   @field('description') declare description: string | null;
   @field('is_base') declare isBase: boolean;
+  @field('is_default') declare isDefault: boolean | null;
   @field('applies_to') declare appliesTo: 'assembly' | 'site' | null;
   @field('framework_id') declare frameworkId: string;
   @readonly @date('created_at') declare createdAt: Date;

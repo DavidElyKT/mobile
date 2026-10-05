@@ -50,7 +50,7 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      part of the asset register everything else reads.
 
 export default appSchema({
-  version: 19,
+  version: 20,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -197,6 +197,7 @@ export default appSchema({
         { name: 'set_name', type: 'string' },
         { name: 'description', type: 'string', isOptional: true },
         { name: 'is_base', type: 'boolean' },
+        { name: 'is_default', type: 'boolean', isOptional: true },
         { name: 'applies_to', type: 'string', isOptional: true }, // 'assembly' | 'site'
         { name: 'framework_id', type: 'string' },                  // local UUID of checklist_framework
         { name: 'created_at', type: 'number' },
@@ -213,6 +214,7 @@ export default appSchema({
         { name: 'regulation_number', type: 'number' },
         { name: 'q_index', type: 'number' },
         { name: 'pinned_note', type: 'string', isOptional: true },
+        { name: 'is_retired', type: 'boolean', isOptional: true },
       ],
     }),
     tableSchema({
