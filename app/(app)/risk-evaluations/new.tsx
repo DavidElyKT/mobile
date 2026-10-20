@@ -31,12 +31,13 @@ import DemoModeBlocked from '@/components/DemoModeBlocked';
 import ControlReviewLocked from '@/components/ControlReviewLocked';
 import { useControlReview } from '@/context/ControlReviewContext';
 import MultiSelectPickerField from '@/components/MultiSelectPickerField';
+import RequiredPerformanceLevelField from '@/components/RequiredPerformanceLevelField';
 import { isDemoSite } from '@/utils/demoMode';
 import { getHazardDescriptionPrompt } from '@/utils/hazardDescriptionQuality';
 import { getCachedUserId } from '@/services/sync';
 import { resolveJobSiteId } from '@/services/jobContext';
 import { enqueuePhoto } from '@/services/photoQueue';
-import RiskEvaluation from '@/db/models/RiskEvaluation.model';
+import RiskEvaluation, { type PerformanceLevel } from '@/db/models/RiskEvaluation.model';
 import Machine from '@/db/models/Machine.model';
 import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
@@ -67,6 +68,8 @@ export default function NewRiskEvaluationScreen() {
   const [controlDescription, setControlDescription] = useState('');
   const [postControlSeverity, setPostControlSeverity] = useState<RiskLevel | null>(null);
   const [postControlProbability, setPostControlProbability] = useState<RiskLevel | null>(null);
+  const [isSafetyFunction, setIsSafetyFunction] = useState<boolean | null>(null);
+  const [requiredPerformanceLevel, setRequiredPerformanceLevel] = useState<PerformanceLevel | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   // The photo before annotation, kept so AI control illustrations have a clean
   // view of the machine. Null unless the assessor actually drew on it.
@@ -586,6 +589,8 @@ export default function NewRiskEvaluationScreen() {
     setControlDescription(ev.controlDescription ?? '');
     setPostControlSeverity(ev.postControlSeverity);
     setPostControlProbability(ev.postControlProbability);
+    setIsSafetyFunction(ev.isSafetyFunction ?? null);
+    setRequiredPerformanceLevel(ev.isSafetyFunction ? ev.requiredPerformanceLevel ?? null : null);
     setSuggestions([]);
     setLibrarySuggestions([]);
   }
@@ -602,6 +607,8 @@ export default function NewRiskEvaluationScreen() {
     setControlDescription('');
     setPostControlSeverity(null);
     setPostControlProbability(null);
+    setIsSafetyFunction(null);
+    setRequiredPerformanceLevel(null);
     setPhotoUrl(null);
     setSelectedMachineId(machine_id ?? null);
     setPendingAnnotation(null);
@@ -657,6 +664,8 @@ export default function NewRiskEvaluationScreen() {
           ev.postControlProbability = postControlProbability;
           ev.postControlScore = postRisk?.score ?? null;
           ev.postControlRating = postRisk?.rating ?? null;
+          ev.isSafetyFunction = isSafetyFunction;
+          ev.requiredPerformanceLevel = isSafetyFunction ? requiredPerformanceLevel : null;
           ev.createdBy = createdBy;
           ev.isSynced = false;
         });
@@ -934,6 +943,12 @@ export default function NewRiskEvaluationScreen() {
           placeholderTextColor={Colors.textLight}
           multiline
           numberOfLines={3}
+        />
+
+        <RequiredPerformanceLevelField
+          isSafetyFunction={isSafetyFunction}
+          level={requiredPerformanceLevel}
+          onChange={(flag, pl) => { setIsSafetyFunction(flag); setRequiredPerformanceLevel(pl); }}
         />
 
         <View style={styles.divider} />

@@ -612,5 +612,67 @@ export default schemaMigrations({
         }),
       ],
     },
+    // Server migration 076. Existing rows get NULL, which the push treats as
+    // "no opinion" — see schema.ts v21.
+    {
+      toVersion: 21,
+      steps: [
+        addColumns({
+          table: 'risk_evaluations',
+          columns: [
+            { name: 'is_safety_function', type: 'boolean', isOptional: true },
+            { name: 'required_performance_level', type: 'string', isOptional: true },
+          ],
+        }),
+      ],
+    },
+    // Server migration 079 — site routes. See schema.ts v22.
+    {
+      toVersion: 22,
+      steps: [
+        addColumns({
+          table: 'assemblies',
+          columns: [
+            { name: 'latitude', type: 'number', isOptional: true },
+            { name: 'longitude', type: 'number', isOptional: true },
+          ],
+        }),
+        createTable({
+          name: 'site_routes',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'site_id', type: 'string' },
+            { name: 'route_date', type: 'string' },
+            { name: 'title', type: 'string', isOptional: true },
+            { name: 'notes', type: 'string', isOptional: true },
+            { name: 'created_by', type: 'number', isOptional: true },
+            { name: 'is_synced', type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+        createTable({
+          name: 'site_route_stops',
+          columns: [
+            { name: 'server_id', type: 'number', isOptional: true },
+            { name: 'route_id', type: 'string' },
+            { name: 'sequence', type: 'number' },
+            { name: 'stop_kind', type: 'string' },
+            { name: 'assembly_id', type: 'string', isOptional: true },
+            { name: 'waypoint_name', type: 'string', isOptional: true },
+            { name: 'latitude', type: 'number', isOptional: true },
+            { name: 'longitude', type: 'number', isOptional: true },
+            { name: 'travel_mode', type: 'string' },
+            { name: 'status', type: 'string' },
+            { name: 'status_at', type: 'string', isOptional: true },
+            { name: 'status_by', type: 'number', isOptional: true },
+            { name: 'notes', type: 'string', isOptional: true },
+            { name: 'is_synced', type: 'boolean' },
+            { name: 'created_at', type: 'number' },
+            { name: 'updated_at', type: 'number' },
+          ],
+        }),
+      ],
+    },
   ],
 });

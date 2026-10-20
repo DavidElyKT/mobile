@@ -7,6 +7,7 @@ import {
   Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
   ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
   ControlReviewRound, ControlReview, CEProject, NotepadNote, AssetModelCaptureSet,
+  SiteRoute, SiteRouteStop,
 } from './models';
 
 let _database: Database | null = null;
@@ -31,6 +32,7 @@ export function getDatabase(): Database {
       Site, Assembly, Machine, ChecklistFramework, QuestionSet, Question,
       ChecklistInstance, ChecklistResponse, RiskEvaluation, FloorPlan, FloorPlanMarker,
       ControlReviewRound, ControlReview, CEProject, NotepadNote, AssetModelCaptureSet,
+      SiteRoute, SiteRouteStop,
     ],
   });
 

@@ -5,6 +5,7 @@ import Assembly from './Assembly';
 import Site from './Site';
 
 export type RiskLevel = 'Negligible' | 'Low' | 'Medium' | 'High' | 'Severe';
+export type PerformanceLevel = 'a' | 'b' | 'c' | 'd' | 'e';
 
 export default class RiskEvaluation extends Model {
   static table = 'risk_evaluations';
@@ -44,6 +45,12 @@ export default class RiskEvaluation extends Model {
   @field('post_control_probability') declare postControlProbability: RiskLevel | null;
   @field('post_control_score') declare postControlScore: number | null;
   @field('post_control_rating') declare postControlRating: RiskLevel | null;
+
+  // Safety-related control function and its required Performance Level
+  // (EN ISO 13849-1). Leave isSafetyFunction NULL unless the assessor touched
+  // the checkbox: the server ignores both on push while it is NULL.
+  @field('is_safety_function') declare isSafetyFunction: boolean | null;
+  @field('required_performance_level') declare requiredPerformanceLevel: PerformanceLevel | null;
 
   @field('floor_plan_id') declare floorPlanId: string | null;
   @field('location_x') declare locationX: number | null;

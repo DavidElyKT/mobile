@@ -25,3 +25,6 @@ export type { NotepadJobKind } from './NotepadNote.model';
 export { default as AssetModelCaptureSet } from './AssetModelCaptureSet.model';
 export type { CaptureSetStatus, CaptureAngle } from './AssetModelCaptureSet.model';
 export { CAPTURE_ANGLES } from './AssetModelCaptureSet.model';
+export { default as SiteRoute } from './SiteRoute.model';
+export { default as SiteRouteStop } from './SiteRouteStop.model';
+export type { StopKind, TravelMode, StopStatus } from './SiteRouteStop.model';

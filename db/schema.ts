@@ -49,8 +49,19 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      more columns on `machines` because these are inputs to a generator, not
 //      part of the asset register everything else reads.
 
+// v21: is_safety_function + required_performance_level on risk_evaluations
+//      (server migration 076). NULL flag = "never set on this device"; the
+//      server ignores both fields on push while it is NULL, so a row held
+//      from before v21 cannot wipe a PL set on the desktop.
+
+// v22: site routes (server migration 079, ROUTES_PLAN.md) — site_routes and
+//      site_route_stops, plus latitude/longitude on assemblies. Built at the desk;
+//      the phone marks stops arrived / done / skipped, reorders them and moves
+//      them to another day, and hands each leg to Google Maps. Asset coordinates
+//      are pull-only (the server drops them on push).
+
 export default appSchema({
-  version: 20,
+  version: 22,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -127,11 +138,10 @@ export default appSchema({
         // customer_id as current truth alongside (v15).
         { name: 'customer', type: 'string' },
         { name: 'customer_id', type: 'string', isOptional: true },
-        // The place and area picked at job setup. LOCAL ONLY — neither is a
-        // column on the server's `sites`, where the place lives on each asset
-        // instead. They are remembered here so a job created offline can stamp
-        // its assets with the place the assessor chose, including before it has
-        // any assets to read it back from.
+        // The place and area picked at job setup. Local-only through Phase 3;
+        // synced since server migration 081 (no schema change here — the
+        // columns already existed), so the desktop and other devices see the
+        // pick. Still what a job created offline stamps its new assets with.
         { name: 'customer_site_id', type: 'string', isOptional: true },
         { name: 'area_id', type: 'string', isOptional: true },
         { name: 'project_number', type: 'string' },
@@ -165,6 +175,9 @@ export default appSchema({
         { name: 'serial_number', type: 'string', isOptional: true },
         { name: 'picture_url', type: 'string', isOptional: true },
         { name: 'nameplate_photo_url', type: 'string', isOptional: true },
+        // v22 — where the asset is, set at the desk. Pull-only.
+        { name: 'latitude', type: 'number', isOptional: true },
+        { name: 'longitude', type: 'number', isOptional: true },
         { name: 'is_synced', type: 'boolean' },
         { name: 'created_at', type: 'number' },
         { name: 'updated_at', type: 'number' },
@@ -305,6 +318,8 @@ export default appSchema({
         { name: 'post_control_probability', type: 'string', isOptional: true },
         { name: 'post_control_score', type: 'number', isOptional: true },
         { name: 'post_control_rating', type: 'string', isOptional: true },
+        { name: 'is_safety_function', type: 'boolean', isOptional: true },
+        { name: 'required_performance_level', type: 'string', isOptional: true }, // 'a'..'e'
         { name: 'created_by', type: 'number', isOptional: true },
         { name: 'is_library_item', type: 'boolean', isOptional: true },
         { name: 'floor_plan_id', type: 'string', isOptional: true },
@@ -475,6 +490,45 @@ export default appSchema({
         { name: 'is_synced',      type: 'boolean' },
         { name: 'created_at',     type: 'number' },
         { name: 'updated_at',     type: 'number' },
+      ],
+    }),
+    // v22 — site routes. route_date is YYYY-MM-DD, the day on the ground.
+    tableSchema({
+      name: 'site_routes',
+      columns: [
+        { name: 'server_id',  type: 'number', isOptional: true },
+        { name: 'site_id',    type: 'string' },                    // local UUID of site
+        { name: 'route_date', type: 'string' },
+        { name: 'title',      type: 'string', isOptional: true },
+        { name: 'notes',      type: 'string', isOptional: true },
+        { name: 'created_by', type: 'number', isOptional: true },  // server user_id; read-only
+        { name: 'is_synced',  type: 'boolean' },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+      ],
+    }),
+    // What a stop IS (kind, asset, waypoint, coordinates, mode) is the desk's and
+    // dropped by the server on push; the phone writes route_id, sequence, status,
+    // status_at and notes.
+    tableSchema({
+      name: 'site_route_stops',
+      columns: [
+        { name: 'server_id',     type: 'number', isOptional: true },
+        { name: 'route_id',      type: 'string' },                    // local UUID of site_route
+        { name: 'sequence',      type: 'number' },
+        { name: 'stop_kind',     type: 'string' },                    // 'asset' | 'waypoint' | 'return'
+        { name: 'assembly_id',   type: 'string', isOptional: true },  // local UUID of assembly
+        { name: 'waypoint_name', type: 'string', isOptional: true },
+        { name: 'latitude',      type: 'number', isOptional: true },
+        { name: 'longitude',     type: 'number', isOptional: true },
+        { name: 'travel_mode',   type: 'string' },                    // 'walk' | 'drive'
+        { name: 'status',        type: 'string' },                    // planned|arrived|done|skipped
+        { name: 'status_at',     type: 'string', isOptional: true },
+        { name: 'status_by',     type: 'number', isOptional: true },  // server user_id; read-only
+        { name: 'notes',         type: 'string', isOptional: true },
+        { name: 'is_synced',     type: 'boolean' },
+        { name: 'created_at',    type: 'number' },
+        { name: 'updated_at',    type: 'number' },
       ],
     }),
   ],

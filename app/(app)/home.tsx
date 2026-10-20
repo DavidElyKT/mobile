@@ -2,6 +2,8 @@ import { View, Text, ScrollView, StyleSheet, Pressable, Alert } from 'react-nati
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import Iso13857Calculator from '@/components/Iso13857Calculator';
+import TodaysRoutesCard from '@/components/TodaysRoutesCard';
+import { useRouteMode } from '@/services/routeMode';
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from 'expo-router';
 import { useDatabase } from '@nozbe/watermelondb/hooks';
@@ -24,6 +26,7 @@ export default function DashboardScreen() {
   const db = useDatabase();
   const [recentCollapsed, setRecentCollapsed] = useState(true);
   const [showCalculator, setShowCalculator] = useState(false);
+  const routeMode = useRouteMode();
 
   useEffect(() => {
     navigation.setOptions({
@@ -106,6 +109,10 @@ export default function DashboardScreen() {
           <Text style={styles.demoBannerText}>Demo mode: showing only {DEMO_CUSTOMER_NAME}</Text>
         </View>
       )}
+
+      {/* Above the action cards: on a travelling job, where to go next is the
+          first question of the morning. */}
+      {routeMode && <TodaysRoutesCard />}
 
       <View style={styles.actionRow}>
         <Pressable

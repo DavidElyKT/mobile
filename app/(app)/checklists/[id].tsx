@@ -45,6 +45,8 @@ export default function ChecklistDetailScreen() {
     db.get<ChecklistResponse>('checklist_responses').query(Q.where('checklist_id', id ?? '')),
   );
   const [questions, setQuestions] = useState<Question[]>([]);
+  // local question UUID → UUID of the displayed question with the same server_id
+  const [questionAlias, setQuestionAlias] = useState<Record<string, string>>({});
   const [regulations, setRegulations] = useState<number[]>([]);
   const [selectedReg, setSelectedReg] = useState<number | null>(null);
   const [loadingQuestions, setLoadingQuestions] = useState(true);
@@ -77,7 +79,7 @@ export default function ChecklistDetailScreen() {
   // Rebuilt from scratch each render so deleted records are never left in the map.
   const responseMap = useRef<Record<string, ChecklistResponse>>({});
   const newMap: Record<string, ChecklistResponse> = {};
-  responses.forEach(r => { newMap[r.questionId] = r; });
+  responses.forEach(r => { newMap[questionAlias[r.questionId] ?? r.questionId] = r; });
   responseMap.current = newMap;
   // Also expose as state for rendering
   const [responseMapTick, setResponseMapTick] = useState(0);
@@ -190,17 +192,24 @@ export default function ChecklistDetailScreen() {
             .fetch()).map(r => r.questionId),
         );
 
-        // Deduplicate by server_id
-        const seen = new Set<number>();
+        const answeredSids = new Set(allQs.filter(q => answered.has(q.id)).map(q => q.serverId ?? 0));
+
+        // Deduplicate by server_id. A response may point at a duplicate local row,
+        // so alias every local row to the one displayed.
+        const canonical = new Map<number, Question>();
+        const alias: Record<string, string> = {};
         const unique: Question[] = [];
         for (const q of allQs) {
-          if (q.isRetired && !answered.has(q.id)) continue;
           const sid = q.serverId ?? 0;
-          if (!seen.has(sid)) { seen.add(sid); unique.push(q); }
+          if (q.isRetired && !answeredSids.has(sid)) continue;
+          let keep = canonical.get(sid);
+          if (!keep) { keep = q; canonical.set(sid, q); unique.push(q); }
+          alias[q.id] = keep.id;
         }
         unique.sort((a, b) => a.regulationNumber - b.regulationNumber || a.qIndex - b.qIndex);
 
         const regs = [...new Set(unique.map(q => q.regulationNumber))].sort((a, b) => a - b);
+        setQuestionAlias(alias);
         setQuestions(unique);
         setRegulations(regs);
         setSelectedReg(regs[0] ?? null);
@@ -405,7 +414,9 @@ export default function ChecklistDetailScreen() {
   }
   if (hiddenByDemoMode) return <DemoModeBlocked />;
 
-  const totalAnswered = responses.length;
+  // Count only responses to questions shown — orphans (removed sets, stale rows) skew the total
+  const shownResponses = questions.map(q => responseMap.current[q.id]).filter(Boolean) as ChecklistResponse[];
+  const totalAnswered = shownResponses.length;
   const totalQuestions = questions.length;
   const progress = totalQuestions > 0 ? totalAnswered / totalQuestions : 0;
   const visibleQuestions = questions.filter(q => q.regulationNumber === selectedReg);
@@ -419,9 +430,9 @@ export default function ChecklistDetailScreen() {
     flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
   }
 
-  const yesCount = responses.filter(r => r.answer === 'Yes').length;
-  const noCount = responses.filter(r => r.answer === 'No').length;
-  const naCount = responses.filter(r => r.answer === 'N/A').length;
+  const yesCount = shownResponses.filter(r => r.answer === 'Yes').length;
+  const noCount = shownResponses.filter(r => r.answer === 'No').length;
+  const naCount = shownResponses.filter(r => r.answer === 'N/A').length;
 
   return (
     <>

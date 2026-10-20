@@ -7,6 +7,7 @@ import * as Updates from 'expo-updates';
 import { useAuth } from '@/context/AuthContext';
 import { useDemoMode } from '@/context/DemoModeContext';
 import { useSync } from '@/context/SyncContext';
+import { setRouteMode, useRouteMode } from '@/services/routeMode';
 import { Colors } from '@/constants/Colors';
 import { DEMO_CUSTOMER_NAME, isAdministratorRole } from '@/utils/demoMode';
 import {
@@ -44,6 +45,7 @@ export default function SettingsScreen() {
   const { isDemoMode, setDemoMode } = useDemoMode();
   const { forceFullSync, isSyncing } = useSync();
   const isAdmin = isAdministratorRole(user?.role);
+  const routeMode = useRouteMode();
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   const [clearing, setClearing] = useState(false);
   const [resyncing, setResyncing] = useState(false);
@@ -175,6 +177,31 @@ export default function SettingsScreen() {
           <Feather name="chevron-right" size={20} color={Colors.textLight} />
         </View>
       </Pressable>
+
+      {/* Per device: it is about what this assessor is doing this week. */}
+      <View style={styles.section}>
+        <View style={styles.row}>
+          <View style={styles.rowText}>
+            <Text style={styles.rowTitle}>Route mode</Text>
+            <Text style={styles.rowSub}>
+              Show today's route on the home screen, with walk / drive directions to each stop.
+            </Text>
+          </View>
+          <Switch
+            value={routeMode}
+            onValueChange={(v) => { void setRouteMode(v); }}
+            trackColor={{ false: Colors.border, true: '#04785760' }}
+            thumbColor={routeMode ? '#047857' : Colors.textLight}
+          />
+        </View>
+        {routeMode ? (
+          <Pressable style={[styles.row, { marginTop: 12 }]} onPress={() => router.push('/(app)/routes' as any)}>
+            <Feather name="map" size={18} color="#047857" />
+            <Text style={[styles.rowTitle, { flex: 1 }]}>All routes</Text>
+            <Feather name="chevron-right" size={20} color={Colors.textLight} />
+          </Pressable>
+        ) : null}
+      </View>
 
       <View style={styles.section}>
         <View style={styles.row}>

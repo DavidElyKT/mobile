@@ -27,6 +27,9 @@ export default class Assembly extends Model {
   @field('serial_number') declare serialNumber: string;
   @field('picture_url') declare pictureUrl: string | null;
   @field('nameplate_photo_url') declare nameplatePhotoUrl: string | null;
+  // v22 — set at the desk (typed or KML import); the server drops them on push.
+  @field('latitude') declare latitude: number | null;
+  @field('longitude') declare longitude: number | null;
   @field('is_synced') declare isSynced: boolean;
   @readonly @date('created_at') declare createdAt: Date;
   @date('updated_at') declare updatedAt: Date;

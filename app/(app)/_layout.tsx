@@ -41,6 +41,16 @@ export default function AppLayout() {
           headerTintColor: '#fff',
         }}
       />
+      {/* Site routes — green, so a travel screen is never mistaken for the
+          assessment flow (ROUTES_PLAN.md). */}
+      <Stack.Screen
+        name="routes/index"
+        options={{ headerStyle: { backgroundColor: '#047857' }, headerTintColor: '#fff' }}
+      />
+      <Stack.Screen
+        name="routes/[id]"
+        options={{ headerStyle: { backgroundColor: '#047857' }, headerTintColor: '#fff' }}
+      />
       <Stack.Screen name="sites/index" options={{ title: 'Projects' }} />
       <Stack.Screen name="sites/new" options={{ presentation: 'modal' }} />
       <Stack.Screen name="sites/[id]" />

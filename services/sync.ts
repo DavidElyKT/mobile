@@ -98,6 +98,9 @@ const WRITABLE_COLLECTIONS = [
   // ce_projects is pull-only and can never be pending.
   'notepad_notes',
   'asset_model_capture_sets',
+  // v22. A stop moved on (status, order, day) or a route made to move one onto.
+  'site_routes',
+  'site_route_stops',
 ] as const;
 
 /** Count of records that have been written locally but not yet pushed to the server. */
@@ -135,6 +138,8 @@ const TABLE_MAP: Record<string, string> = {
   ce_project:            'ce_projects',
   notepad_note:          'notepad_notes',
   asset_model_capture_sets: 'asset_model_capture_sets',
+  site_routes:           'site_routes',
+  site_route_stops:      'site_route_stops',
 };
 
 /**
@@ -167,6 +172,10 @@ const PUSH_ORDER = [
   // After `machines` and `assemblies`: a four-shot set photographed on an asset
   // registered the same morning waits for that asset to have a server id.
   'asset_model_capture_sets',
+  // A route this phone made (to move a stop onto a day with none) before the
+  // stop that now names it — the stop waits for the route's serverId.
+  'site_routes',
+  'site_route_stops',
 ] as const;
 
 /**
@@ -176,6 +185,8 @@ const PUSH_ORDER = [
 const FK_FIELDS: Record<string, Record<string, string>> = {
   sites: {
     customer_id: 'customers',
+    customer_site_id: 'customer_sites',
+    area_id: 'site_areas',
   },
   assemblies: {
     site_id: 'sites',
@@ -228,6 +239,13 @@ const FK_FIELDS: Record<string, Record<string, string>> = {
   asset_model_capture_sets: {
     assembly_id: 'assemblies',
     machine_id:  'machines',
+  },
+  site_routes: {
+    site_id: 'sites',
+  },
+  site_route_stops: {
+    route_id:    'site_routes',
+    assembly_id: 'assemblies',
   },
 };
 
@@ -331,6 +349,10 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
   sites: [
     'customer',
     'customer_id',
+    // Where the job was set up (server migration 081). Local-only through
+    // Phase 3, so the desktop and a second device never saw the pick.
+    'customer_site_id',
+    'area_id',
     'project_number',
     'project_description',
     'assessor_id',
@@ -355,6 +377,10 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'serial_number',
     'picture_url',
     'nameplate_photo_url',
+    // v22 (server 079). Pulled for the route screen; the server drops both on
+    // push, so a stale copy here can never wipe what the desk set.
+    'latitude',
+    'longitude',
     'created_at',
     'updated_at',
   ],
@@ -434,6 +460,8 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'post_control_probability',
     'post_control_score',
     'post_control_rating',
+    'is_safety_function',
+    'required_performance_level',
     'created_by',
     'is_library_item',
     'floor_plan_id',
@@ -549,6 +577,33 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'created_at',
     'updated_at',
   ],
+  // v22 (server 079). created_by and status_by are readable, never writable —
+  // stamped from the caller's token server-side.
+  site_routes: [
+    'site_id',
+    'route_date',
+    'title',
+    'notes',
+    'created_by',
+    'created_at',
+    'updated_at',
+  ],
+  site_route_stops: [
+    'route_id',
+    'sequence',
+    'stop_kind',
+    'assembly_id',
+    'waypoint_name',
+    'latitude',
+    'longitude',
+    'travel_mode',
+    'status',
+    'status_at',
+    'status_by',
+    'notes',
+    'created_at',
+    'updated_at',
+  ],
 };
 
 
@@ -648,6 +703,8 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     // The notepad's other job spine. Without it a note taken on a CE job would
     // arrive with its job stripped and sit in the notepad belonging to nothing.
     ce_projects:           await _buildMap('ce_projects'),
+    // A stop's parent. Pulled before its stops (server SYNC_TABLES order).
+    site_routes:           await _buildMap('site_routes'),
   };
 
   // FK columns for each server table: column name → parent collection
@@ -666,9 +723,11 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
     floor_plan_markers:  { floor_plan_id: 'floor_plans', assembly_id: 'assemblies', machine_id: 'machines' },
     control_review_rounds: { site_id: 'sites' },
     control_reviews:       { round_id: 'control_review_rounds', eval_id: 'risk_evaluations' },
-    sites:                 { customer_id: 'customers' },
+    sites:                 { customer_id: 'customers', customer_site_id: 'customer_sites', area_id: 'site_areas' },
     notepad_note:          { site_id: 'sites', ce_project_id: 'ce_projects' },
     asset_model_capture_sets: { assembly_id: 'assemblies', machine_id: 'machines' },
+    site_routes:           { site_id: 'sites' },
+    site_route_stops:      { route_id: 'site_routes', assembly_id: 'assemblies' },
   };
 
   // Resolve any integer FK values in a fields object to local UUIDs.
@@ -1079,6 +1138,8 @@ function _pkFor(table: string): string {
     ce_project:            'ce_project_id',
     notepad_note:          'note_id',
     asset_model_capture_sets: 'capture_set_id',
+    site_routes:          'route_id',
+    site_route_stops:     'stop_id',
   };
   return pkMap[table] ?? 'id';
 }

@@ -14,8 +14,8 @@ export default class Site extends Model {
   // whose customer nobody has placed yet.
   @field('customer') declare customer: string;
   @field('customer_id') declare customerId: string | null;
-  // Local only, never pushed: the server keeps a job's place on its assets.
-  // Held here so job setup can stamp new assets with the chosen place.
+  // The place picked at job setup — synced since server migration 081. Job
+  // setup's new assets are stamped with it.
   @field('customer_site_id') declare customerSiteId: string | null;
   @field('area_id') declare areaId: string | null;
   @field('project_number') declare projectNumber: string;

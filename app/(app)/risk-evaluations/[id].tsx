@@ -205,6 +205,18 @@ export default function RiskEvaluationDetailScreen() {
           </View>
         ) : null}
 
+        {evaluation.isSafetyFunction ? (
+          <View style={styles.card}>
+            <View style={styles.sectionLabelRow}>
+              <Feather name="cpu" size={17} color={Colors.primary} />
+              <Text style={styles.sectionLabel}>Required Performance Level</Text>
+            </View>
+            <Text style={styles.body}>
+              {evaluation.requiredPerformanceLevel ? `PLr ${evaluation.requiredPerformanceLevel}` : 'Not set'}
+            </Text>
+          </View>
+        ) : null}
+
         <RiskBlock
           label="Post-control Risk"
           severity={evaluation.postControlSeverity}
