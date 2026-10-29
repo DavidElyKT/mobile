@@ -674,5 +674,15 @@ export default schemaMigrations({
         }),
       ],
     },
+    // Server migration 090. See schema.ts v23.
+    {
+      toVersion: 23,
+      steps: [
+        addColumns({
+          table: 'assemblies',
+          columns: [{ name: 'machine_category', type: 'string', isOptional: true }],
+        }),
+      ],
+    },
   ],
 });

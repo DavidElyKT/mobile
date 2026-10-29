@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '@/constants/api';
+import type { ReviewStatus } from '@/db/models/RiskEvaluation.model';
 
 // ---------------------------------------------------------------------------
 // Core request helper
@@ -214,7 +215,9 @@ export const RiskEvaluationsApi = {
       edited_reference?: string | null;
       edited_hazard?: string | null;
       edited_control?: string | null;
-      review_status?: 'Pending' | 'Approved';
+      review_status?: ReviewStatus;
+      // JSON array of { field, label, prompt, acknowledged } — desktop's shape.
+      revision_prompts?: string | null;
     },
   ) =>
     request<any>(`/risk-evaluations/${evalId}`, token, {
@@ -388,4 +391,14 @@ export const SyncApi = {
       method: 'POST',
       body: JSON.stringify({ filename, content_type: contentType, data: base64 }),
     }),
+};
+
+// ---------------------------------------------------------------------------
+// HSE guidance (server migrations 087-090). INTERNAL ONLY — staff devices.
+// ---------------------------------------------------------------------------
+
+export const HseGuidanceApi = {
+  /** The offline copy cached by services/hseGuidance.ts. Null before 087. */
+  offline: (token: string) =>
+    request<any | null>('/hse-guidance/offline', token),
 };

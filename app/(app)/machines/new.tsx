@@ -20,6 +20,10 @@ import Assembly from '@/db/models/Assembly.model';
 import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import { useMachineSuggestions, filterSuggestions, normalizeEntry } from '@/hooks/useMachineSuggestions';
+import MachineCategoryField from '@/components/MachineCategoryField';
+import { useCategoryCandidates } from '@/services/hseGuidance';
+import { suggestCategories } from '@/services/categorySuggest';
+import { matchCategory } from '@/services/hseGuidance';
 import FocusWizardModal, { type FocusWizardModalRef, type WizardStep, type WizardSuggestion } from '@/components/FocusWizardModal';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 
@@ -63,10 +67,8 @@ export default function NewMachineScreen() {
 
   const { categorySuggestions, useSuggestions } = useMachineSuggestions(db, machineCategory);
 
-  const visibleCategorySuggestions = useMemo(
-    () => filterSuggestions(machineCategory, categorySuggestions),
-    [machineCategory, categorySuggestions],
-  );
+  // Focus Mode ranks the same way as the form field (services/categorySuggest.ts).
+  const categoryCandidates = useCategoryCandidates(categorySuggestions);
   const visibleUseSuggestions = useMemo(
     () => filterSuggestions(machineUse, useSuggestions),
     [machineUse, useSuggestions],
@@ -86,7 +88,10 @@ export default function NewMachineScreen() {
       question: 'What category of machine is this?',
       placeholder: 'e.g. Conveyor, Press, Lathe',
       getSuggestions: (value): WizardSuggestion[] =>
-        filterSuggestions(value, categorySuggestions).map(s => ({ label: s })),
+        suggestCategories(value, categoryCandidates).map(s => ({
+          label: s.kind === 'alias' && s.typeName ? `${s.label} → ${s.typeName}` : s.label,
+          apply: () => ({ machineCategory: s.label }),
+        })),
     },
     {
       key: 'machineUse',
@@ -171,7 +176,7 @@ export default function NewMachineScreen() {
       question: 'Where is this sub-machine?',
       subtext: 'Mark its position on the floor plan.',
     }] : []),
-  ], [categorySuggestions, useSuggestions, hasFloorPlans]);
+  ], [categoryCandidates, useSuggestions, hasFloorPlans]);
 
   // Wizard keys whose photos are GEOMETRY rather than evidence. They go
   // straight back into the wizard without the annotation modal: a drawn arrow
@@ -513,26 +518,8 @@ export default function NewMachineScreen() {
       <TextInput style={styles.input} value={nameRef} onChangeText={setNameRef}
         placeholder="e.g. CNC Lathe 1" placeholderTextColor={Colors.textLight} />
 
-      <Text style={styles.label}>Machine Category</Text>
-      <TextInput
-        style={styles.input}
-        value={machineCategory}
-        onChangeText={setMachineCategory}
-        placeholder="e.g. Conveyor, Press, Lathe"
-        placeholderTextColor={Colors.textLight}
-      />
-      {visibleCategorySuggestions.length > 0 ? (
-        <View style={styles.suggestionWrap}>
-          <Text style={styles.suggestionLabel}>Suggested</Text>
-          <View style={styles.suggestionRow}>
-            {visibleCategorySuggestions.map(value => (
-              <Pressable key={value} style={styles.suggestionChip} onPress={() => setMachineCategory(value)}>
-                <Text style={styles.suggestionChipText}>{value}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <MachineCategoryField value={machineCategory} onChange={setMachineCategory}
+        labelStyle={styles.label} inputStyle={styles.input} />
 
       <Text style={styles.label}>Machine Use</Text>
       <TextInput
@@ -606,7 +593,15 @@ export default function NewMachineScreen() {
       steps={machineFocusSteps}
       onSave={handleFocusSave}
       onClose={() => setFocusModeOpen(false)}
-      getSuccessDetail={(d) => d.machineNameReference || ''}
+      getSuccessDetail={(d) => {
+        // The wizard has no room for the card, so the flag goes in the
+        // success line; the machine screen shows the documents.
+        const hse = matchCategory(d.machineCategory);
+        const flag = hse.status === 'approved' && hse.guidance.length
+          ? ` · HSE guidance applies (${hse.guidance.map(g => g.reference || g.title).join(', ')})`
+          : '';
+        return (d.machineNameReference || '') + flag;
+      }}
       onLocationRequest={handleLocationRequest}
       onPhotoRequest={handleWizardPhotoRequest}
     />

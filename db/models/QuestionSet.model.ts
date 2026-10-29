@@ -1,6 +1,6 @@
 import { Model, Query } from '@nozbe/watermelondb';
 import { field, date, children, readonly, relation } from '@nozbe/watermelondb/decorators';
-import Question from './Question';
+import type Question from './Question.model';
 import ChecklistFramework from './ChecklistFramework.model';
 
 export default class QuestionSet extends Model {

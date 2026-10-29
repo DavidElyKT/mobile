@@ -18,7 +18,7 @@ import {
   ROUTE_GREEN, currentIndex, directionsUrl, formatDistance, formatRouteDate, haversineMetres, resolveStops,
   type ResolvedStop,
 } from '@/services/routeLogic';
-import { markDeparted, moveStop, moveToNextDay, setStopStatus } from '@/services/routeActions';
+import { markDeparted, moveStop, resetOrder, setStopStatus, useRouteProgress } from '@/services/routeProgress';
 
 const WALK = '#059669';
 const DRIVE = '#4338CA';
@@ -33,7 +33,9 @@ const STATUS_COLOUR: Record<StopStatus, string> = {
 /**
  * One day's route (ROUTES_PLAN.md Phase 4). The big card is the stop to work on
  * now — the first not done or skipped. GO hands the leg to Google Maps in the
- * stop's own mode; Done is always the assessor's call (D11).
+ * stop's own mode; Done is always the assessor's call (D11). Status and order
+ * are this phone's own (services/routeProgress.ts) — nothing here writes the
+ * route, so assessors travelling separately never move each other's screen.
  */
 export default function RouteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -46,10 +48,13 @@ export default function RouteScreen() {
     db.get<SiteRouteStop>('site_route_stops').query(Q.where('route_id', id ?? '')),
     [id],
   );
-  const stops = useMemo(
+  const progress = useRouteProgress();
+  const officeOrder = useMemo(
     () => [...rawStops].sort((a, b) => a.sequence - b.sequence || a.createdAt.getTime() - b.createdAt.getTime()),
     [rawStops],
   );
+  const stops = route ? progress.ordered(route, officeOrder) : officeOrder;
+  const statuses = route ? stops.map((s) => progress.statusOf(route, s)) : stops.map(() => 'planned' as StopStatus);
   const assetIds = useMemo(
     () => [...new Set(stops.map((s) => s.assemblyId).filter((v): v is string => !!v))],
     [stops],
@@ -75,13 +80,13 @@ export default function RouteScreen() {
   const nameByKey = useMemo(() => new Map(resolved.map((r) => [r.key, r.name])), [resolved]);
   const [sheetFor, setSheetFor] = useState<number | null>(null);
 
-  const now = currentIndex(stops.map((s) => s.status));
-  const closed = stops.filter((s) => s.status === 'done' || s.status === 'skipped').length;
+  const now = currentIndex(statuses);
+  const closed = statuses.filter((s) => s === 'done' || s === 'skipped').length;
 
+  // Progress is local: nothing to sync after it.
   async function after(work: Promise<unknown>) {
     try {
       await work;
-      void triggerSync();
     } catch (e: any) {
       Alert.alert('Could not save', e?.message ?? String(e));
     }
@@ -94,7 +99,7 @@ export default function RouteScreen() {
       return;
     }
     const url = directionsUrl(r.target, stops[index].travelMode);
-    await after(markDeparted(stops, index));
+    if (route) await after(markDeparted(route, stops, index, progress));
     try {
       await Linking.openURL(url);
     } catch {
@@ -129,8 +134,10 @@ export default function RouteScreen() {
 
   const current = now >= 0 ? stops[now] : null;
   const currentR = now >= 0 ? resolved[now] : null;
-  const nextIdx = current?.status === 'arrived' && now + 1 < stops.length ? now + 1 : -1;
+  const currentStatus = now >= 0 ? statuses[now] : null;
+  const nextIdx = currentStatus === 'arrived' && now + 1 < stops.length ? now + 1 : -1;
   const sheetStop = sheetFor !== null ? stops[sheetFor] : null;
+  const sheetStatus = sheetFor !== null ? statuses[sheetFor] : null;
 
   return (
     <>
@@ -158,18 +165,18 @@ export default function RouteScreen() {
             <Feather name="check-circle" size={36} color={Colors.success} />
             <Text style={styles.doneText}>Day complete</Text>
           </View>
-        ) : current.status === 'arrived' ? (
+        ) : currentStatus === 'arrived' ? (
           <View style={styles.card}>
             <Text style={styles.cardKicker}>YOU'RE AT · STOP {now + 1}</Text>
             <Text style={styles.cardName}>{currentR.name}</Text>
             {current.notes ? <Text style={styles.stopNote}>{current.notes}</Text> : null}
             <Pressable style={[styles.bigBtn, { backgroundColor: Colors.success }]}
-              onPress={() => after(setStopStatus(current, 'done'))}>
+              onPress={() => after(setStopStatus(route, current, 'done'))}>
               <Feather name="check" size={26} color="#fff" />
               <Text style={styles.bigBtnText}>Done here</Text>
             </Pressable>
             <View style={styles.btnRow}>
-              <SmallBtn icon="skip-forward" label="Skip" onPress={() => after(setStopStatus(current, 'skipped'))} />
+              <SmallBtn icon="skip-forward" label="Skip" onPress={() => after(setStopStatus(route, current, 'skipped'))} />
               {current.assemblyId ? (
                 <SmallBtn icon="clipboard" label="Open asset"
                   onPress={() => router.push(`/(app)/assemblies/${current.assemblyId}` as any)} />
@@ -199,8 +206,8 @@ export default function RouteScreen() {
               <Text style={styles.bigBtnText}>GO</Text>
             </Pressable>
             <View style={styles.btnRow}>
-              <SmallBtn icon="map-pin" label="Arrived" onPress={() => after(setStopStatus(current, 'arrived'))} />
-              <SmallBtn icon="skip-forward" label="Skip" onPress={() => after(setStopStatus(current, 'skipped'))} />
+              <SmallBtn icon="map-pin" label="Arrived" onPress={() => after(setStopStatus(route, current, 'arrived'))} />
+              <SmallBtn icon="skip-forward" label="Skip" onPress={() => after(setStopStatus(route, current, 'skipped'))} />
               {current.assemblyId ? (
                 <SmallBtn icon="clipboard" label="Asset"
                   onPress={() => router.push(`/(app)/assemblies/${current.assemblyId}` as any)} />
@@ -216,6 +223,7 @@ export default function RouteScreen() {
             key={stop.id}
             index={i}
             stop={stop}
+            status={statuses[i]}
             resolved={resolved[i]}
             subtitle={subtitle(i)}
             isNow={i === now}
@@ -230,13 +238,13 @@ export default function RouteScreen() {
           {sheetStop && sheetFor !== null && (
             <Pressable style={styles.sheet} onPress={() => undefined}>
               <Text style={styles.sheetTitle}>{resolved[sheetFor].name}</Text>
-              <Text style={styles.meta}>Stop {sheetFor + 1} · {STATUS_LABEL[sheetStop.status]}</Text>
+              <Text style={styles.meta}>Stop {sheetFor + 1} · {STATUS_LABEL[sheetStatus!]}</Text>
               {(['arrived', 'done', 'skipped', 'planned'] as StopStatus[])
-                .filter((s) => s !== sheetStop.status)
+                .filter((s) => s !== sheetStatus)
                 .map((s) => (
                   <SheetItem key={s} icon={s === 'done' ? 'check' : s === 'skipped' ? 'skip-forward' : s === 'arrived' ? 'map-pin' : 'rotate-ccw'}
                     label={s === 'planned' ? 'Reset to planned' : `Mark ${STATUS_LABEL[s].toLowerCase()}`}
-                    onPress={() => { setSheetFor(null); void after(setStopStatus(sheetStop, s)); }} />
+                    onPress={() => { setSheetFor(null); void after(setStopStatus(route, sheetStop, s)); }} />
                 ))}
               {sheetStop.assemblyId ? (
                 <SheetItem icon="clipboard" label="Open asset"
@@ -244,20 +252,16 @@ export default function RouteScreen() {
               ) : null}
               {sheetFor > 0 && (
                 <SheetItem icon="arrow-up" label="Move up"
-                  onPress={() => { const i = sheetFor; setSheetFor(null); void after(moveStop(stops, i, -1)); }} />
+                  onPress={() => { const i = sheetFor; setSheetFor(null); void after(moveStop(route, stops, i, -1)); }} />
               )}
               {sheetFor < stops.length - 1 && (
                 <SheetItem icon="arrow-down" label="Move down"
-                  onPress={() => { const i = sheetFor; setSheetFor(null); void after(moveStop(stops, i, 1)); }} />
+                  onPress={() => { const i = sheetFor; setSheetFor(null); void after(moveStop(route, stops, i, 1)); }} />
               )}
-              <SheetItem icon="calendar" label="Move to next day"
-                onPress={() => {
-                  const stop = sheetStop;
-                  const name = resolved[sheetFor].name;
-                  setSheetFor(null);
-                  void after(moveToNextDay(route, stop).then((d) =>
-                    Alert.alert('Moved', `${name} is now on ${formatRouteDate(d)}.`)));
-                }} />
+              {progress.hasOwnOrder(route) && (
+                <SheetItem icon="list" label="Back to the office's order"
+                  onPress={() => { setSheetFor(null); void after(resetOrder(route)); }} />
+              )}
               <SheetItem icon="x" label="Cancel" onPress={() => setSheetFor(null)} muted />
             </Pressable>
           )}
@@ -277,11 +281,11 @@ function ModeBadge({ mode, small }: { mode: TravelMode; small?: boolean }) {
   );
 }
 
-function StopRow({ index, stop, resolved, subtitle, isNow, onGo, onPress }: {
-  index: number; stop: SiteRouteStop; resolved: ResolvedStop; subtitle: string;
+function StopRow({ index, stop, status, resolved, subtitle, isNow, onGo, onPress }: {
+  index: number; stop: SiteRouteStop; status: StopStatus; resolved: ResolvedStop; subtitle: string;
   isNow: boolean; onGo: () => void; onPress: () => void;
 }) {
-  const closed = stop.status === 'done' || stop.status === 'skipped';
+  const closed = status === 'done' || status === 'skipped';
   return (
     <Pressable style={[styles.row, isNow && styles.rowNow, closed && styles.rowClosed]} onPress={onPress}>
       <Text style={styles.rowIndex}>{index + 1}</Text>
@@ -292,7 +296,7 @@ function StopRow({ index, stop, resolved, subtitle, isNow, onGo, onPress }: {
         <Text style={[styles.rowSub, resolved.missingCoordinates && stop.stopKind !== 'return' && { color: Colors.danger }]}
           numberOfLines={1}>{subtitle}</Text>
       </View>
-      <Text style={[styles.status, { color: STATUS_COLOUR[stop.status] }]}>{STATUS_LABEL[stop.status]}</Text>
+      <Text style={[styles.status, { color: STATUS_COLOUR[status] }]}>{STATUS_LABEL[status]}</Text>
       {!closed && (
         <Pressable onPress={onGo} hitSlop={8} style={styles.rowGo} disabled={resolved.missingCoordinates}>
           <Feather name="navigation" size={18} color={resolved.missingCoordinates ? Colors.textLight : ROUTE_GREEN} />

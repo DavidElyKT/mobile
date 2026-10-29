@@ -5,6 +5,7 @@ import {
 import FocusWizardModal, { type FocusWizardModalRef, type WizardStep, type WizardSuggestion } from '@/components/FocusWizardModal';
 import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import EvalHseGuidance from '@/components/EvalHseGuidance';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -725,6 +726,13 @@ export default function NewRiskEvaluationScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        {!isProjectRiskEval && (
+          <EvalHseGuidance
+            style={styles.hseTop}
+            machineId={selectedMachineId ?? machine_id ?? null}
+            assemblyId={assembly_id ?? null}
+          />
+        )}
         {isProjectRiskEval && (
           <View style={styles.projectBanner}>
             <Feather name="briefcase" size={16} color={Colors.primary} />
@@ -1104,6 +1112,7 @@ function RiskBadge({ label, rating }: { label: string; rating: RiskLevel | null 
 }
 
 const styles = StyleSheet.create({
+  hseTop: { marginTop: 0, marginBottom: 14 },
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 19, paddingBottom: 48 },
   label: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 7, marginTop: 24 },

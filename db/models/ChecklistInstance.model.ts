@@ -1,8 +1,8 @@
 import { Model, Query } from '@nozbe/watermelondb';
 import { field, date, children, readonly, relation } from '@nozbe/watermelondb/decorators';
-import Assembly from './Assembly';
-import Site from './Site';
-import ChecklistResponse from './ChecklistResponse';
+import type Assembly from './Assembly.model';
+import type Site from './Site.model';
+import type ChecklistResponse from './ChecklistResponse.model';
 import ChecklistFramework from './ChecklistFramework.model';
 
 export default class ChecklistInstance extends Model {

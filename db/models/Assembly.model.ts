@@ -1,7 +1,7 @@
 import { Model, Query } from '@nozbe/watermelondb';
 import { field, date, children, readonly, relation } from '@nozbe/watermelondb/decorators';
-import Machine from './Machine';
-import Site from './Site';
+import type Machine from './Machine.model';
+import type Site from './Site.model';
 
 export default class Assembly extends Model {
   static table = 'assemblies';
@@ -25,6 +25,8 @@ export default class Assembly extends Model {
   @field('manufacturer') declare manufacturer: string;
   @field('model') declare model: string;
   @field('serial_number') declare serialNumber: string;
+  // v23 (server 090) — standalone only; a line is typed by its sub-machines.
+  @field('machine_category') declare machineCategory: string | null;
   @field('picture_url') declare pictureUrl: string | null;
   @field('nameplate_photo_url') declare nameplatePhotoUrl: string | null;
   // v22 — set at the desk (typed or KML import); the server drops them on push.

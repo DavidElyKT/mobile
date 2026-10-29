@@ -13,6 +13,8 @@ import PhotoAnnotationModal from '@/components/PhotoAnnotationModal';
 import { enqueuePhoto } from '@/services/photoQueue';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import MachineCategoryField from '@/components/MachineCategoryField';
+import { normalizeEntry } from '@/hooks/useMachineSuggestions';
 import ModelShots from '@/components/ModelShots';
 import { saveModelPhotos, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
@@ -41,6 +43,7 @@ export default function NewAssetScreen() {
   const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
+  const [machineCategory, setMachineCategory] = useState('');
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [nameplateUrl, setNameplateUrl] = useState<string | null>(null);
 
@@ -118,6 +121,7 @@ export default function NewAssetScreen() {
           a.manufacturer = assetType === 'standalone' ? manufacturer.trim() : '';
           a.model = assetType === 'standalone' ? model.trim() : '';
           a.serialNumber = assetType === 'standalone' ? serialNumber.trim() : '';
+          a.machineCategory = assetType === 'standalone' ? normalizeEntry(machineCategory) || null : null;
           a.pictureUrl = pictureUrl;
           a.nameplatePhotoUrl = assetType === 'standalone' ? nameplateUrl : null;
           a.isSynced = false;
@@ -178,6 +182,7 @@ export default function NewAssetScreen() {
           a.manufacturer = assetType === 'standalone' ? manufacturer.trim() : '';
           a.model = assetType === 'standalone' ? model.trim() : '';
           a.serialNumber = assetType === 'standalone' ? serialNumber.trim() : '';
+          a.machineCategory = assetType === 'standalone' ? normalizeEntry(machineCategory) || null : null;
           a.pictureUrl = pictureUrl;
           a.nameplatePhotoUrl = assetType === 'standalone' ? nameplateUrl : null;
           a.isSynced = false;
@@ -345,6 +350,9 @@ export default function NewAssetScreen() {
             placeholder="Optional"
             placeholderTextColor={Colors.textLight}
           />
+
+          <MachineCategoryField value={machineCategory} onChange={setMachineCategory}
+            labelStyle={styles.label} inputStyle={styles.input} />
         </View>
       )}
 

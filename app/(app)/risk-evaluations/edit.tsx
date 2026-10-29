@@ -3,6 +3,7 @@ import {
   FlatList, Modal, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useNavigation } from 'expo-router';
+import EvalHseGuidance from '@/components/EvalHseGuidance';
 import { useState, useEffect, useMemo } from 'react';
 import Iso13857Calculator from '@/components/Iso13857Calculator';
 import { Feather } from '@expo/vector-icons';
@@ -260,6 +261,11 @@ export default function EditRiskEvaluationScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <EvalHseGuidance
+          style={styles.hseTop}
+          machineId={selectedMachineId}
+          assemblyId={evaluation?.assemblyId}
+        />
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <Text style={styles.label}>Hazard Title *</Text>
@@ -508,6 +514,7 @@ function RiskBadge({ label, rating }: { label: string; rating: RiskLevel | null 
 }
 
 const styles = StyleSheet.create({
+  hseTop: { marginTop: 0, marginBottom: 14 },
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 19, paddingBottom: 48 },
   label: { fontSize: 16, fontWeight: '600', color: Colors.text, marginBottom: 7, marginTop: 24 },

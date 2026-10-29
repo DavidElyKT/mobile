@@ -1,5 +1,5 @@
 import {
-  View, Text, TextInput, SectionList, StyleSheet, Pressable, ActivityIndicator, Alert, Modal, RefreshControl,
+  View, Text, TextInput, SectionList, StyleSheet, Pressable, ActivityIndicator, Alert, Modal, RefreshControl, type SectionListData,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -29,6 +29,7 @@ import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 import CachedImage from '@/components/CachedImage';
+import { HseGuidanceSummary } from '@/components/HseGuidanceCard';
 
 export default function AssetDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -309,9 +310,18 @@ export default function AssetDetailScreen() {
   ).sort((a, b) => (a.machineNameReference ?? '').localeCompare(b.machineNameReference ?? ''));
 
   function ListHeader() {
-    const hasNameplate = assembly!.manufacturer || assembly!.serialNumber || assembly!.model;
+    const hasNameplate = assembly!.manufacturer || assembly!.serialNumber || assembly!.model
+      || assembly!.machineCategory;
     return (
       <>
+        {/* HSE guidance first: a standalone asset by its own category, an
+            assembly by every sub-machine on it. */}
+        <HseGuidanceSummary
+          style={styles.hseTop}
+          subjects={isAssemblyType
+            ? machines.map(m => ({ label: m.machineNameReference ?? null, category: m.machineCategory }))
+            : [{ label: null, category: assembly!.machineCategory }]}
+        />
         {assembly!.pictureUrl ? (
           <CachedImage uri={assembly!.pictureUrl} style={styles.heroImage} resizeMode="cover" />
         ) : null}
@@ -337,6 +347,12 @@ export default function AssetDetailScreen() {
               <Feather name="tag" size={16} color={Colors.primary} />
               <Text style={styles.nameplateHeadText}>Nameplate Details</Text>
             </View>
+            {assembly!.machineCategory ? (
+              <View style={styles.nameplateRow}>
+                <Text style={styles.nameplateKey}>Category</Text>
+                <Text style={styles.nameplateVal}>{assembly!.machineCategory}</Text>
+              </View>
+            ) : null}
             {assembly!.manufacturer ? (
               <View style={styles.nameplateRow}>
                 <Text style={styles.nameplateKey}>Make / Model</Text>
@@ -543,7 +559,7 @@ export default function AssetDetailScreen() {
     ),
   };
 
-  const sections = isAssemblyType
+  const sections: SectionListData<any, any>[] = isAssemblyType
     ? [machineSection, checklistSection, riskEvalSection]
     : [checklistSection, riskEvalSection];
 
@@ -668,6 +684,7 @@ export default function AssetDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  hseTop: { marginTop: 0, marginBottom: 14 },
   modelShotsCard: {
     backgroundColor: Colors.card,
     borderRadius: 14,

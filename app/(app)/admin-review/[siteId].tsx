@@ -9,8 +9,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
   Alert,
   Dimensions,
 } from 'react-native';
@@ -32,7 +31,7 @@ import { Colors } from '@/constants/Colors';
 import Site from '@/db/models/Site.model';
 import Assembly from '@/db/models/Assembly.model';
 import Machine from '@/db/models/Machine.model';
-import RiskEvaluation from '@/db/models/RiskEvaluation.model';
+import RiskEvaluation, { type ReviewStatus } from '@/db/models/RiskEvaluation.model';
 import CachedImage from '@/components/CachedImage';
 
 // ---------------------------------------------------------------------------
@@ -47,12 +46,38 @@ const SHEET_H = Math.floor(SCREEN_H * 0.93);
 const PAGER_HEADER_H = 76;
 const PAGE_H = SHEET_H - PAGER_HEADER_H;
 
+// Colours match desktop's reviewStatusBadge: Pending amber, RfR indigo,
+// NR red, Amended purple, Reviewed gray, Approved green.
+const STATUS_STYLE: Record<ReviewStatus, { fg: string; bg: string; icon: string; short: string }> = {
+  'Pending':          { fg: AMBER,          bg: AMBER_LIGHT,           icon: 'clock',          short: 'Pending' },
+  'Ready for Review': { fg: '#4338CA',      bg: '#E0E7FF',             icon: 'inbox',          short: 'Ready' },
+  'Needs Revision':   { fg: '#B91C1C',      bg: '#FEE2E2',             icon: 'alert-triangle', short: 'Revision' },
+  'Amended':          { fg: '#7E22CE',      bg: '#F3E8FF',             icon: 'edit-3',         short: 'Amended' },
+  'Reviewed':         { fg: '#4B5563',      bg: '#F3F4F6',             icon: 'eye',            short: 'Reviewed' },
+  'Approved':         { fg: Colors.success, bg: Colors.success + '20', icon: 'check-circle',   short: 'Approved' },
+};
+
+// Filter chips. 'Reviewed' is DB-reserved and nothing sets it, so no chip.
+const FILTER_STATUSES: ReviewStatus[] = ['Pending', 'Ready for Review', 'Needs Revision', 'Amended', 'Approved'];
+
+// Same seven fields and labels as desktop's FLAGGABLE_FIELDS (InspectorPanel.tsx),
+// so a prompt raised on either app reads the same on the other.
+const FLAGGABLE_FIELDS: ReadonlyArray<{ field: string; label: string }> = [
+  { field: 'edited_reference',  label: 'Edited Reference' },
+  { field: 'edited_hazard',     label: 'Edited Hazard Description' },
+  { field: 'edited_control',    label: 'Edited Control Measures' },
+  { field: 'pre_control_risk',  label: 'Pre-Control Risk' },
+  { field: 'post_control_risk', label: 'Post-Control Risk' },
+  { field: 'hazard_category',   label: 'Hazard Category' },
+  { field: 'photo',             label: 'Photo Evidence' },
+];
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface Filters {
-  status: 'All' | 'Pending' | 'Approved';
+  status: 'All' | ReviewStatus;
   ratings: RiskLevel[];
   edits: 'all' | 'edited' | 'clean';
   assemblies: string[];
@@ -81,6 +106,8 @@ function countActiveFilters(f: Filters): number {
   return n;
 }
 
+type RevisionPrompt = { field: string; label: string; prompt: string; acknowledged: boolean };
+
 interface EvalWithContext {
   eval: RiskEvaluation;
   assemblyName: string;
@@ -104,8 +131,43 @@ function displayControl(ev: RiskEvaluation): string {
   return ev.editedControl?.trim() ?? '';
 }
 
+function statusOf(ev: RiskEvaluation): ReviewStatus {
+  return ev.reviewStatus ?? 'Pending';
+}
+
 function isApproved(ev: RiskEvaluation): boolean {
-  return ev.reviewStatus === 'Approved';
+  return statusOf(ev) === 'Approved';
+}
+
+// Waiting on the reviewer, as opposed to the assessor.
+function isAwaitingReview(status: ReviewStatus): boolean {
+  return status === 'Ready for Review' || status === 'Amended';
+}
+
+function parsePrompts(raw: unknown): RevisionPrompt[] | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+// Desktop writes prompts as HTML (TrackChangesEditor); show them as plain text.
+function promptText(prompt: string): string {
+  return prompt
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function hasEditedFields(ev: RiskEvaluation): boolean {
@@ -121,13 +183,21 @@ function ratingColour(rating: RiskLevel | null | undefined): string {
 // Small sub-components
 // ---------------------------------------------------------------------------
 
-function ReviewStatusBadge({ approved }: { approved: boolean }) {
+function ReviewStatusBadge({ status, short }: { status: ReviewStatus; short?: boolean }) {
+  const st = STATUS_STYLE[status];
   return (
-    <View style={[styles.badge, approved ? styles.badgeApproved : styles.badgePending]}>
-      <Feather name={approved ? 'check-circle' : 'clock'} size={13} color={approved ? Colors.success : AMBER} />
-      <Text style={[styles.badgeText, approved ? styles.badgeApprovedText : styles.badgePendingText]}>
-        {approved ? 'Approved' : 'Pending'}
-      </Text>
+    <View style={[styles.badge, { backgroundColor: st.bg }]}>
+      <Feather name={st.icon as any} size={13} color={st.fg} />
+      <Text style={[styles.badgeText, { color: st.fg }]}>{short ? st.short : status}</Text>
+    </View>
+  );
+}
+
+function FieldLabel({ label, flagged }: { label: string; flagged: boolean }) {
+  return (
+    <View style={styles.fieldLabelRow}>
+      {flagged && <Feather name="alert-triangle" size={13} color={Colors.danger} />}
+      <Text style={[styles.fieldLabel, flagged && { color: Colors.danger }]}>{label}</Text>
     </View>
   );
 }
@@ -240,7 +310,7 @@ function FilterPanel({ filters, onChange, availableAssemblies }: FilterPanelProp
           {/* Status */}
           <Text style={styles.filterGroupLabel}>Status</Text>
           <View style={styles.filterChipRow}>
-            {(['All', 'Pending', 'Approved'] as const).map(s => (
+            {(['All', ...FILTER_STATUSES] as const).map(s => (
               <Pressable
                 key={s}
                 style={[styles.filterChip, filters.status === s && styles.filterChipActive]}
@@ -353,7 +423,7 @@ function EvalRow({ item, onPress }: { item: EvalWithContext; onPress: () => void
           </Text>
           <View style={styles.evalRowBadges}>
             {edited && <EditedBadge />}
-            <ReviewStatusBadge approved={approved} />
+            <ReviewStatusBadge status={statusOf(ev)} short />
           </View>
         </View>
         <Text style={styles.evalHazard} numberOfLines={2}>
@@ -391,34 +461,134 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
   const [editedExpanded, setEditedExpanded] = useState(true);
   const [onsiteExpanded, setOnsiteExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [localApproved, setLocalApproved] = useState(isApproved(ev));
+  const [advancing, setAdvancing] = useState(false);
+  const [status, setStatus] = useState<ReviewStatus>(statusOf(ev));
+  // revision_prompts is not in the mobile schema — read live from the API.
+  const [prompts, setPrompts] = useState<RevisionPrompt[] | null>(null);
+  const [showReturn, setShowReturn] = useState(false);
+  const [returnDraft, setReturnDraft] = useState<Record<string, { checked: boolean; prompt: string }>>({});
+  const [sendingReturn, setSendingReturn] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const workflowY = useRef(0);
+  // Edited-field values as last saved, so a prompt is acknowledged by
+  // changing its field — desktop's rule (InspectorPanel auto-acknowledge).
+  const baseline = useRef({ ref: editedRef, hazard: editedHazard, control: editedControl });
 
   const categories = parseHazardCategories(ev.hazardCategory);
+  const busy = saving || advancing || sendingReturn;
 
-  async function handleSave() {
+  useEffect(() => {
+    if (!ev.serverId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        if (!token) return;
+        const latest = await RiskEvaluationsApi.get(token, ev.serverId!);
+        if (cancelled) return;
+        setPrompts(parsePrompts(latest?.revision_prompts));
+        const serverStatus = latest?.review_status as ReviewStatus | undefined;
+        if (serverStatus && serverStatus !== statusOf(ev)) {
+          setStatus(serverStatus);
+          await db.write(async () => {
+            await ev.update(r => { (r._raw as unknown as Record<string, unknown>).review_status = serverStatus; });
+          });
+        }
+      } catch { /* offline — keep the synced status, no prompts shown */ }
+    })();
+    return () => { cancelled = true; };
+  }, [ev.serverId]);
+
+  const effectivePrompts = useMemo<RevisionPrompt[] | null>(() => {
+    if (!prompts) return null;
+    const bl = baseline.current;
+    return prompts.map(p => {
+      if (p.acknowledged) return p;
+      const edited =
+        (p.field === 'edited_reference' && editedRef !== bl.ref) ||
+        (p.field === 'edited_hazard' && editedHazard !== bl.hazard) ||
+        (p.field === 'edited_control' && editedControl !== bl.control);
+      return edited ? { ...p, acknowledged: true } : p;
+    });
+  }, [prompts, editedRef, editedHazard, editedControl]);
+
+  const outstanding = effectivePrompts?.filter(p => !p.acknowledged) ?? [];
+  const isFlagged = (field: string) => outstanding.some(p => p.field === field);
+
+  // Reviewer branch of desktop's progressAction / leftAction.
+  const progressAction: { label: string; nextStatus: ReviewStatus; guarded: boolean; blocked?: string } | null = (() => {
+    if (status === 'Pending')
+      return { label: 'Submit for Review', nextStatus: 'Ready for Review', guarded: true };
+    if (status === 'Needs Revision') {
+      const n = outstanding.length;
+      return {
+        label: 'Mark as Amended',
+        nextStatus: 'Amended',
+        guarded: true,
+        blocked: n > 0 ? `${n} revision prompt${n > 1 ? 's' : ''} not yet addressed` : undefined,
+      };
+    }
+    if (isAwaitingReview(status))
+      return { label: 'Approve', nextStatus: 'Approved', guarded: false };
+    return null;
+  })();
+  const canReturn = isAwaitingReview(status) || status === 'Approved';
+
+  function requireServerId(): number | null {
     if (!ev.serverId) {
       Alert.alert('Sync required', 'This evaluation must be synced before it can be reviewed.');
-      return;
+      return null;
     }
+    return ev.serverId;
+  }
+
+  // Saves the edited fields (and any prompts they acknowledged), optionally
+  // moving the status on — desktop's "Save & Approve" etc.
+  async function persist(nextStatus?: ReviewStatus) {
+    const serverId = requireServerId();
+    if (serverId == null) return;
+    const token = await getAccessToken();
+    if (!token) throw new Error('Not authenticated');
+    const fields = {
+      edited_reference: editedRef.trim() || null,
+      edited_hazard: editedHazard.trim() || null,
+      edited_control: editedControl.trim() || null,
+    };
+    const ackChanged = !!prompts && !!effectivePrompts &&
+      effectivePrompts.some((p, i) => p.acknowledged !== prompts[i].acknowledged);
+    await RiskEvaluationsApi.updateReviewFields(token, serverId, {
+      ...fields,
+      ...(ackChanged ? { revision_prompts: JSON.stringify(effectivePrompts) } : {}),
+      ...(nextStatus ? { review_status: nextStatus } : {}),
+    });
+    await db.write(async () => {
+      await ev.update(r => {
+        (r._raw as unknown as Record<string, unknown>).edited_reference = fields.edited_reference;
+        (r._raw as unknown as Record<string, unknown>).edited_hazard = fields.edited_hazard;
+        (r._raw as unknown as Record<string, unknown>).edited_control = fields.edited_control;
+        if (nextStatus) (r._raw as unknown as Record<string, unknown>).review_status = nextStatus;
+      });
+    });
+    baseline.current = { ref: editedRef, hazard: editedHazard, control: editedControl };
+    // The server clears prompts on Approved.
+    setPrompts(nextStatus === 'Approved' ? null : effectivePrompts);
+    if (nextStatus) setStatus(nextStatus);
+    showNotice(nextStatus ? `Saved — now ${nextStatus}.` : 'Edits saved.');
+    triggerSync();
+  }
+
+  // Confirms an action on the page itself and brings the status into view —
+  // without it a closing form looked like nothing had happened.
+  function showNotice(text: string) {
+    setNotice(text);
+    scrollRef.current?.scrollTo({ y: Math.max(0, workflowY.current - 12), animated: true });
+  }
+
+  async function handleSave() {
     setSaving(true);
     try {
-      const token = await getAccessToken();
-      if (!token) throw new Error('Not authenticated');
-      const fields = {
-        edited_reference: editedRef.trim() || null,
-        edited_hazard: editedHazard.trim() || null,
-        edited_control: editedControl.trim() || null,
-      };
-      await RiskEvaluationsApi.updateReviewFields(token, ev.serverId, fields);
-      await db.write(async () => {
-        await ev.update(r => {
-          r._raw.edited_reference = fields.edited_reference;
-          r._raw.edited_hazard = fields.edited_hazard;
-          r._raw.edited_control = fields.edited_control;
-        });
-      });
-      triggerSync();
+      await persist();
     } catch (e: any) {
       Alert.alert('Save failed', e.message);
     } finally {
@@ -426,34 +596,81 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
     }
   }
 
-  async function handleToggleApprove() {
-    if (!ev.serverId) {
-      Alert.alert('Sync required', 'This evaluation must be synced before it can be approved.');
-      return;
+  async function advance(nextStatus: ReviewStatus) {
+    setAdvancing(true);
+    try {
+      await persist(nextStatus);
+    } catch (e: any) {
+      Alert.alert('Failed', e.message);
+    } finally {
+      setAdvancing(false);
     }
-    setApproving(true);
+  }
+
+  function handleAdvance() {
+    if (!progressAction || progressAction.blocked) return;
+    const { nextStatus, guarded, label } = progressAction;
+    // Desktop asks for a second click before a reviewer moves an eval that is
+    // still with the assessor; here that is a confirm.
+    if (guarded) {
+      Alert.alert(
+        label,
+        `This evaluation is still with the assessor. Save and move it to "${nextStatus}"?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: label, onPress: () => void advance(nextStatus) },
+        ],
+      );
+    } else {
+      void advance(nextStatus);
+    }
+  }
+
+  const returnPrompts: RevisionPrompt[] = FLAGGABLE_FIELDS
+    .filter(f => returnDraft[f.field]?.checked && (returnDraft[f.field]?.prompt ?? '').trim().length > 0)
+    .map(f => ({ field: f.field, label: f.label, prompt: returnDraft[f.field].prompt.trim(), acknowledged: false }));
+
+  // Mirrors desktop handleSendForRevision: status + prompts only, edits untouched.
+  async function handleSendReturn() {
+    if (returnPrompts.length === 0) return;
+    const serverId = requireServerId();
+    if (serverId == null) return;
+    setSendingReturn(true);
     try {
       const token = await getAccessToken();
       if (!token) throw new Error('Not authenticated');
-      const newStatus: 'Pending' | 'Approved' = localApproved ? 'Pending' : 'Approved';
-      await RiskEvaluationsApi.updateReviewFields(token, ev.serverId, { review_status: newStatus });
-      await db.write(async () => {
-        await ev.update(r => { r._raw.review_status = newStatus; });
+      await RiskEvaluationsApi.updateReviewFields(token, serverId, {
+        review_status: 'Needs Revision',
+        revision_prompts: JSON.stringify(returnPrompts),
       });
-      setLocalApproved(!localApproved);
+      await db.write(async () => {
+        await ev.update(r => { (r._raw as unknown as Record<string, unknown>).review_status = 'Needs Revision'; });
+      });
+      baseline.current = { ref: editedRef, hazard: editedHazard, control: editedControl };
+      setPrompts(returnPrompts);
+      setStatus('Needs Revision');
+      setShowReturn(false);
+      setReturnDraft({});
+      showNotice(
+        `Returned to the assessor with ${returnPrompts.length} revision prompt${returnPrompts.length > 1 ? 's' : ''}.`,
+      );
       triggerSync();
     } catch (e: any) {
       Alert.alert('Failed', e.message);
     } finally {
-      setApproving(false);
+      setSendingReturn(false);
     }
   }
 
   return (
     <View style={styles.page}>
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={styles.pageScrollContent}
         keyboardShouldPersistTaps="handled"
+        // The sheet no longer resizes for the keyboard; the page insets
+        // itself so a focused box scrolls clear of it (iOS).
+        automaticallyAdjustKeyboardInsets
         showsVerticalScrollIndicator={false}
       >
         {/* Hero photo */}
@@ -470,24 +687,143 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
         {/* Scope */}
         <Text style={styles.pageScope}>{item.scopeLabel}</Text>
 
-        {/* Approve row */}
-        <View style={styles.approveRow}>
-          <ReviewStatusBadge approved={localApproved} />
-          <Pressable
-            style={[styles.approveBtn, localApproved && styles.approveBtnUnapprove]}
-            onPress={handleToggleApprove}
-            disabled={approving}
-          >
-            {approving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Feather name={localApproved ? 'x-circle' : 'check-circle'} size={18} color="#fff" />
-                <Text style={styles.approveBtnText}>{localApproved ? 'Unapprove' : 'Approve'}</Text>
-              </>
-            )}
-          </Pressable>
+        {/* Workflow card */}
+        <View style={styles.workflowCard} onLayout={e => { workflowY.current = e.nativeEvent.layout.y; }}>
+          <View style={styles.workflowStatusRow}>
+            <Text style={styles.workflowStatusLabel}>Status</Text>
+            <ReviewStatusBadge status={status} />
+          </View>
+
+          {notice && (
+            <Pressable style={styles.noticeBanner} onPress={() => setNotice(null)}>
+              <Feather name="check-circle" size={16} color={Colors.success} />
+              <Text style={styles.noticeText}>{notice}</Text>
+              <Feather name="x" size={15} color={Colors.textMuted} />
+            </Pressable>
+          )}
+
+          {progressAction && (
+            <Pressable
+              style={[
+                styles.advanceBtn,
+                { backgroundColor: STATUS_STYLE[progressAction.nextStatus].fg },
+                (busy || !!progressAction.blocked) && styles.btnDisabled,
+              ]}
+              onPress={handleAdvance}
+              disabled={busy || !!progressAction.blocked}
+            >
+              {advancing ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Feather
+                    name={progressAction.nextStatus === 'Approved' ? 'check-circle' : 'arrow-right'}
+                    size={18}
+                    color="#fff"
+                  />
+                  <Text style={styles.advanceBtnText}>
+                    {progressAction.nextStatus === 'Approved' ? 'Save & Approve' : progressAction.label}
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          )}
+          {progressAction?.blocked && (
+            <Text style={styles.blockedText}>{progressAction.blocked}</Text>
+          )}
+
+          {canReturn && !showReturn && (
+            <Pressable
+              style={[styles.returnBtn, busy && styles.btnDisabled]}
+              onPress={() => setShowReturn(true)}
+              disabled={busy}
+            >
+              <Feather name="corner-up-left" size={17} color={Colors.danger} />
+              <Text style={styles.returnBtnText}>Return for Revision</Text>
+            </Pressable>
+          )}
         </View>
+
+        {/* Return for Revision builder */}
+        {showReturn && (
+          <View style={styles.returnCard}>
+            <Text style={styles.returnCardTitle}>Flag fields for revision</Text>
+            {FLAGGABLE_FIELDS.map(f => {
+              const entry = returnDraft[f.field] ?? { checked: false, prompt: '' };
+              return (
+                <View key={f.field}>
+                  <Pressable
+                    style={styles.returnFieldRow}
+                    onPress={() =>
+                      setReturnDraft(prev => ({ ...prev, [f.field]: { ...entry, checked: !entry.checked } }))
+                    }
+                  >
+                    <Feather
+                      name={entry.checked ? 'check-square' : 'square'}
+                      size={20}
+                      color={entry.checked ? Colors.danger : Colors.textMuted}
+                    />
+                    <Text style={styles.returnFieldLabel}>{f.label}</Text>
+                  </Pressable>
+                  {entry.checked && (
+                    <TextInput
+                      style={[styles.textInput, styles.returnPromptInput]}
+                      value={entry.prompt}
+                      onChangeText={text =>
+                        setReturnDraft(prev => ({ ...prev, [f.field]: { ...entry, prompt: text } }))
+                      }
+                      placeholder={`Instruction for ${f.label}…`}
+                      placeholderTextColor={Colors.textLight}
+                      multiline
+                      textAlignVertical="top"
+                    />
+                  )}
+                </View>
+              );
+            })}
+            <View style={styles.returnActions}>
+              <Pressable
+                style={[styles.returnSendBtn, (sendingReturn || returnPrompts.length === 0) && styles.btnDisabled]}
+                onPress={handleSendReturn}
+                disabled={sendingReturn || returnPrompts.length === 0}
+              >
+                {sendingReturn
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.returnSendText}>Return for Revision</Text>}
+              </Pressable>
+              <Pressable
+                style={styles.returnCancelBtn}
+                onPress={() => { setShowReturn(false); setReturnDraft({}); }}
+                disabled={sendingReturn}
+              >
+                <Text style={styles.returnCancelText}>Cancel</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {/* Outstanding / addressed revision prompts */}
+        {effectivePrompts && effectivePrompts.length > 0 && status !== 'Approved' && (
+          <View style={styles.promptsCard}>
+            <Text style={styles.promptsTitle}>Revision prompts</Text>
+            {effectivePrompts.map(p => (
+              <View key={p.field} style={styles.promptRow}>
+                <Feather
+                  name={p.acknowledged ? 'check-circle' : 'alert-circle'}
+                  size={16}
+                  color={p.acknowledged ? Colors.success : Colors.danger}
+                  style={{ marginTop: 2 }}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.promptLabel}>{p.label}</Text>
+                  <Text style={[styles.promptBody, p.acknowledged && styles.promptBodyDone]}>
+                    {promptText(p.prompt)}
+                  </Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* Edited Fields */}
         <SectionHeader
@@ -499,7 +835,7 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
         />
         {editedExpanded && (
           <View style={styles.sectionBody}>
-            <Text style={styles.fieldLabel}>Edited Reference</Text>
+            <FieldLabel label="Edited Reference" flagged={isFlagged('edited_reference')} />
             <TextInput
               style={styles.textInput}
               value={editedRef}
@@ -509,7 +845,7 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
               returnKeyType="next"
             />
 
-            <Text style={styles.fieldLabel}>Edited Hazard</Text>
+            <FieldLabel label="Edited Hazard" flagged={isFlagged('edited_hazard')} />
             <TextInput
               style={[styles.textInput, styles.textInputMulti]}
               value={editedHazard}
@@ -526,7 +862,7 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
               <RiskChip label="Post-control" rating={ev.postControlRating} />
             </View>
 
-            <Text style={styles.fieldLabel}>Edited Control</Text>
+            <FieldLabel label="Edited Control" flagged={isFlagged('edited_control')} />
             <TextInput
               style={[styles.textInput, styles.textInputMulti]}
               value={editedControl}
@@ -537,7 +873,7 @@ function EvalPage({ item, onOpenPhoto }: EvalPageProps) {
               textAlignVertical="top"
             />
 
-            <Pressable style={styles.saveBtn} onPress={handleSave} disabled={saving}>
+            <Pressable style={[styles.saveBtn, busy && styles.btnDisabled]} onPress={handleSave} disabled={busy}>
               {saving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
@@ -634,11 +970,14 @@ function EvalPagerSheet({ items, initialIndex, onClose, onOpenPhoto }: PagerShee
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.sheetBackdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'height' : undefined}
-          style={styles.sheetContainer}
-        >
+        {/* With the keyboard up, a backdrop tap only dismisses it. On iPhone,
+            focusing a revision prompt box closed the whole sheet while it
+            shrank for the keyboard (KeyboardAvoidingView 'height', now gone). */}
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => (Keyboard.isVisible() ? Keyboard.dismiss() : onClose())}
+        />
+        <View style={styles.sheetContainer}>
           {/* Fixed pager header */}
           <View style={styles.pagerHeader}>
             <View style={styles.sheetHandle} />
@@ -708,7 +1047,7 @@ function EvalPagerSheet({ items, initialIndex, onClose, onOpenPhoto }: PagerShee
               style={{ flex: 1 }}
             />
           )}
-        </KeyboardAvoidingView>
+        </View>
       </View>
     </Modal>
   );
@@ -758,6 +1097,7 @@ export default function AdminReviewScreen() {
   const [search, setSearch] = useState('');
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [pagerItems, setPagerItems] = useState<EvalWithContext[]>([]);
   const [lightboxUri, setLightboxUri] = useState<string | null>(null);
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
@@ -814,8 +1154,7 @@ export default function AdminReviewScreen() {
     const q = search.toLowerCase().trim();
     return enriched.filter(item => {
       const ev = item.eval;
-      if (filters.status === 'Pending' && isApproved(ev)) return false;
-      if (filters.status === 'Approved' && !isApproved(ev)) return false;
+      if (filters.status !== 'All' && statusOf(ev) !== filters.status) return false;
       if (filters.ratings.length > 0) {
         const r = ev.postControlRating ?? ev.preControlRating;
         if (!r || !filters.ratings.includes(r)) return false;
@@ -859,7 +1198,11 @@ export default function AdminReviewScreen() {
     return Array.from(map.entries()).map(([key, val]) => ({ key, ...val }));
   }, [filtered]);
 
-  const pendingCount = enriched.filter(i => !isApproved(i.eval)).length;
+  const toReviewCount = enriched.filter(i => isAwaitingReview(statusOf(i.eval))).length;
+  const withAssessorCount = enriched.filter(i => {
+    const st = statusOf(i.eval);
+    return st === 'Pending' || st === 'Needs Revision';
+  }).length;
   const approvedCount = enriched.filter(i => isApproved(i.eval)).length;
 
   function toggleGroup(key: string) {
@@ -882,8 +1225,12 @@ export default function AdminReviewScreen() {
     );
   }
 
+  // The pager works on a snapshot taken when it opens. Live, a status change
+  // made in the pager dropped the eval out of a status filter and the page
+  // swapped to a different evaluation under the reviewer's thumb.
   const handleOpenEval = useCallback((item: EvalWithContext) => {
     const idx = filteredFlat.findIndex(i => i.eval.id === item.eval.id);
+    setPagerItems(filteredFlat);
     setSelectedIndex(idx >= 0 ? idx : 0);
   }, [filteredFlat]);
 
@@ -911,13 +1258,13 @@ export default function AdminReviewScreen() {
 
       {/* Summary chips */}
       <View style={styles.summaryRow}>
-        <View style={styles.summaryChip}>
-          <Text style={styles.summaryCount}>{enriched.length}</Text>
-          <Text style={styles.summaryLabel}>Total</Text>
+        <View style={[styles.summaryChip, styles.summaryChipToReview]}>
+          <Text style={[styles.summaryCount, { color: STATUS_STYLE['Ready for Review'].fg }]}>{toReviewCount}</Text>
+          <Text style={styles.summaryLabel}>To Review</Text>
         </View>
         <View style={[styles.summaryChip, styles.summaryChipPending]}>
-          <Text style={[styles.summaryCount, { color: AMBER }]}>{pendingCount}</Text>
-          <Text style={styles.summaryLabel}>Pending</Text>
+          <Text style={[styles.summaryCount, { color: AMBER }]}>{withAssessorCount}</Text>
+          <Text style={styles.summaryLabel}>With Assessor</Text>
         </View>
         <View style={[styles.summaryChip, styles.summaryChipApproved]}>
           <Text style={[styles.summaryCount, { color: Colors.success }]}>{approvedCount}</Text>
@@ -965,7 +1312,7 @@ export default function AdminReviewScreen() {
         ) : (
           groups.map(group => {
             const collapsed = collapsedGroups[group.key] ?? true;
-            const groupPending = group.items.filter(i => !isApproved(i.eval)).length;
+            const groupToReview = group.items.filter(i => isAwaitingReview(statusOf(i.eval))).length;
             const sorted = [...group.items].sort((a, b) =>
               displayReference(a.eval).localeCompare(displayReference(b.eval), undefined, { numeric: true }),
             );
@@ -979,9 +1326,9 @@ export default function AdminReviewScreen() {
                   <View style={styles.groupHeaderLeft}>
                     <Feather name="layers" size={17} color={Colors.primary} />
                     <Text style={styles.groupLabel}>{group.label}</Text>
-                    {groupPending > 0 && (
-                      <View style={styles.groupPendingBadge}>
-                        <Text style={styles.groupPendingText}>{groupPending} pending</Text>
+                    {groupToReview > 0 && (
+                      <View style={styles.groupToReviewBadge}>
+                        <Text style={styles.groupToReviewText}>{groupToReview} to review</Text>
                       </View>
                     )}
                   </View>
@@ -999,7 +1346,7 @@ export default function AdminReviewScreen() {
 
       {/* Swipeable pager sheet */}
       <EvalPagerSheet
-        items={filteredFlat}
+        items={pagerItems}
         initialIndex={selectedIndex}
         onClose={() => setSelectedIndex(null)}
         onOpenPhoto={uri => setLightboxUri(uri)}
@@ -1042,6 +1389,7 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: 'center', backgroundColor: Colors.card, borderRadius: 12, paddingVertical: 13,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
+  summaryChipToReview: { borderTopWidth: 3, borderTopColor: STATUS_STYLE['Ready for Review'].fg },
   summaryChipPending: { borderTopWidth: 3, borderTopColor: AMBER_BORDER },
   summaryChipApproved: { borderTopWidth: 3, borderTopColor: Colors.success },
   summaryCount: { fontSize: 26, fontWeight: '800', color: Colors.text },
@@ -1112,10 +1460,10 @@ const styles = StyleSheet.create({
   },
   groupHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 },
   groupLabel: { fontSize: 17, fontWeight: '700', color: Colors.text, flex: 1 },
-  groupPendingBadge: {
-    backgroundColor: AMBER_LIGHT, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
+  groupToReviewBadge: {
+    backgroundColor: STATUS_STYLE['Ready for Review'].bg, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 3,
   },
-  groupPendingText: { fontSize: 12, fontWeight: '700', color: AMBER },
+  groupToReviewText: { fontSize: 12, fontWeight: '700', color: STATUS_STYLE['Ready for Review'].fg },
 
   // Eval rows
   evalRow: {
@@ -1143,11 +1491,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 5,
     borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5,
   },
-  badgePending: { backgroundColor: AMBER_LIGHT },
-  badgeApproved: { backgroundColor: Colors.success + '20' },
   badgeText: { fontSize: 12, fontWeight: '700' },
-  badgePendingText: { color: AMBER },
-  badgeApprovedText: { color: Colors.success },
   editedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: Colors.primary + '15', borderRadius: 20, paddingHorizontal: 8, paddingVertical: 5,
@@ -1215,20 +1559,77 @@ const styles = StyleSheet.create({
   },
   heroZoomText: { fontSize: 12, color: '#fff', fontWeight: '600' },
 
-  // Approve row
-  approveRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginTop: 10, marginBottom: 6, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: Colors.border,
+  // Workflow card
+  workflowCard: {
+    marginTop: 10, marginBottom: 6, padding: 14, gap: 10,
+    backgroundColor: Colors.background, borderRadius: 14,
+    borderWidth: 1, borderColor: Colors.border,
   },
-  approveBtn: {
+  workflowStatusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  workflowStatusLabel: {
+    fontSize: 12, fontWeight: '700', color: Colors.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  advanceBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 14, borderRadius: 10,
+  },
+  advanceBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  blockedText: { fontSize: 13, color: Colors.danger, textAlign: 'center' },
+  noticeBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: Colors.success,
-    paddingHorizontal: 20, paddingVertical: 13, borderRadius: 10,
-    minWidth: 130, justifyContent: 'center',
+    backgroundColor: Colors.success + '18', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10,
   },
-  approveBtnUnapprove: { backgroundColor: Colors.textMuted },
-  approveBtnText: { fontSize: 16, fontWeight: '700', color: '#fff' },
+  noticeText: { flex: 1, fontSize: 14, fontWeight: '600', color: Colors.text },
+  returnBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 13, borderRadius: 10,
+    borderWidth: 1, borderColor: Colors.danger + '55', backgroundColor: Colors.card,
+  },
+  returnBtnText: { fontSize: 15, fontWeight: '700', color: Colors.danger },
+  btnDisabled: { opacity: 0.45 },
+
+  // Return for Revision builder
+  returnCard: {
+    marginTop: 4, marginBottom: 6, padding: 14,
+    backgroundColor: '#FEF2F2', borderRadius: 14,
+    borderWidth: 1, borderColor: '#FECACA',
+  },
+  returnCardTitle: {
+    fontSize: 12, fontWeight: '800', color: '#991B1B',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 4,
+  },
+  returnFieldRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10 },
+  returnFieldLabel: { fontSize: 15, fontWeight: '600', color: '#991B1B' },
+  returnPromptInput: { minHeight: 80, marginBottom: 6, backgroundColor: Colors.card },
+  returnActions: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  returnSendBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.danger, borderRadius: 10, paddingVertical: 13,
+  },
+  returnSendText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  returnCancelBtn: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    borderRadius: 10, paddingVertical: 13,
+    borderWidth: 1, borderColor: Colors.border, backgroundColor: Colors.card,
+  },
+  returnCancelText: { fontSize: 15, fontWeight: '600', color: Colors.textMuted },
+
+  // Revision prompts
+  promptsCard: {
+    marginTop: 4, marginBottom: 6, padding: 14, gap: 12,
+    backgroundColor: Colors.card, borderRadius: 14,
+    borderWidth: 1, borderColor: '#FECACA',
+  },
+  promptsTitle: {
+    fontSize: 12, fontWeight: '800', color: Colors.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+  promptRow: { flexDirection: 'row', gap: 10 },
+  promptLabel: { fontSize: 13, fontWeight: '700', color: Colors.text, marginBottom: 2 },
+  promptBody: { fontSize: 15, color: Colors.text, lineHeight: 21 },
+  promptBodyDone: { color: Colors.textMuted, textDecorationLine: 'line-through' },
 
   // Collapsible section
   sectionHeader: {
@@ -1247,6 +1648,7 @@ const styles = StyleSheet.create({
   },
 
   // Inputs
+  fieldLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   fieldLabel: {
     fontSize: 12, fontWeight: '700', color: Colors.textMuted,
     textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 7, marginTop: 12,

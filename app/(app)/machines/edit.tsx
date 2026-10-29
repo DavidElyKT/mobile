@@ -10,6 +10,7 @@ import { useDemoMode } from '@/context/DemoModeContext';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
 import ModelShots from '@/components/ModelShots';
+import MachineCategoryField from '@/components/MachineCategoryField';
 import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
 import { isDemoSite } from '@/utils/demoMode';
@@ -43,10 +44,6 @@ export default function EditMachineScreen() {
 
   const { categorySuggestions, useSuggestions } = useMachineSuggestions(db, machineCategory, id);
 
-  const visibleCategorySuggestions = useMemo(
-    () => filterSuggestions(machineCategory, categorySuggestions),
-    [machineCategory, categorySuggestions],
-  );
   const visibleUseSuggestions = useMemo(
     () => filterSuggestions(machineUse, useSuggestions),
     [machineUse, useSuggestions],
@@ -147,26 +144,8 @@ export default function EditMachineScreen() {
       <TextInput style={styles.input} value={nameRef} onChangeText={setNameRef}
         placeholder="e.g. CNC Lathe 1" placeholderTextColor={Colors.textLight} />
 
-      <Text style={styles.label}>Machine Category</Text>
-      <TextInput
-        style={styles.input}
-        value={machineCategory}
-        onChangeText={setMachineCategory}
-        placeholder="e.g. Conveyor, Press, Lathe"
-        placeholderTextColor={Colors.textLight}
-      />
-      {visibleCategorySuggestions.length > 0 ? (
-        <View style={styles.suggestionWrap}>
-          <Text style={styles.suggestionLabel}>Suggested</Text>
-          <View style={styles.suggestionRow}>
-            {visibleCategorySuggestions.map(value => (
-              <Pressable key={value} style={styles.suggestionChip} onPress={() => setMachineCategory(value)}>
-                <Text style={styles.suggestionChipText}>{value}</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
-      ) : null}
+      <MachineCategoryField value={machineCategory} onChange={setMachineCategory} excludeId={id}
+        labelStyle={styles.label} inputStyle={styles.input} />
 
       <Text style={styles.label}>Machine Use</Text>
       <TextInput

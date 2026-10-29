@@ -1,11 +1,21 @@
 import { Model } from '@nozbe/watermelondb';
 import { field, date, readonly, relation } from '@nozbe/watermelondb/decorators';
-import Machine from './Machine';
-import Assembly from './Assembly';
-import Site from './Site';
+import type Machine from './Machine.model';
+import type Assembly from './Assembly.model';
+import type Site from './Site.model';
 
 export type RiskLevel = 'Negligible' | 'Low' | 'Medium' | 'High' | 'Severe';
 export type PerformanceLevel = 'a' | 'b' | 'c' | 'd' | 'e';
+
+// Same ordered workflow as desktop and VALID_REVIEW_STATUSES in
+// api/risk_evaluations/routes.py. 'Reviewed' is DB-reserved; nothing sets it.
+export type ReviewStatus =
+  | 'Pending'
+  | 'Ready for Review'
+  | 'Needs Revision'
+  | 'Amended'
+  | 'Reviewed'
+  | 'Approved';
 
 export default class RiskEvaluation extends Model {
   static table = 'risk_evaluations';
@@ -61,8 +71,9 @@ export default class RiskEvaluation extends Model {
   // Library items are surfaced as suggestions across all projects in the mobile autofill.
   @field('is_library_item') declare isLibraryItem: boolean;
 
-  // Admin review fields — set by Administrators; synced down from server.
-  @field('review_status')    declare reviewStatus: 'Pending' | 'Approved' | null;
+  // Admin review fields — set by reviewers via PUT /risk-evaluations/{id};
+  // synced down from server, never pushed (STRIP in api/sync/routes.py).
+  @field('review_status')    declare reviewStatus: ReviewStatus | null;
   @field('edited_reference') declare editedReference: string | null;
   @field('edited_hazard')    declare editedHazard: string | null;
   @field('edited_control')   declare editedControl: string | null;

@@ -25,6 +25,7 @@ import { Q } from '@nozbe/watermelondb';
 import { getDatabase } from '@/db';
 import { SyncApi, UsersApi } from './api';
 import { processPhotoQueue } from './photoQueue';
+import { refreshHseGuidance } from './hseGuidance';
 
 const LAST_PULLED_AT_KEY = 'sync_last_pulled_at';
 /**
@@ -98,7 +99,8 @@ const WRITABLE_COLLECTIONS = [
   // ce_projects is pull-only and can never be pending.
   'notepad_notes',
   'asset_model_capture_sets',
-  // v22. A stop moved on (status, order, day) or a route made to move one onto.
+  // v22. Nothing on the phone writes these since 2026-10-21 — progress is
+  // device-local (services/routeProgress.ts). Left writable, harmlessly.
   'site_routes',
   'site_route_stops',
 ] as const;
@@ -375,6 +377,7 @@ const SYNC_COLUMN_ALLOWLIST: Record<string, readonly string[]> = {
     'manufacturer',
     'model',
     'serial_number',
+    'machine_category',  // v23 (server 090), standalone only
     'picture_url',
     'nameplate_photo_url',
     // v22 (server 079). Pulled for the route screen; the server drops both on
@@ -860,6 +863,9 @@ export async function pullFromServer(getAccessToken: () => Promise<string | null
   } catch {
     // non-fatal — cached value from previous sync remains usable
   }
+
+  // HSE guidance for offline flagging. Non-fatal: the last copy stays in use.
+  await refreshHseGuidance(token);
 }
 
 // --------------------------------------------------------------------------

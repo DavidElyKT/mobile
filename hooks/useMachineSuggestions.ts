@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Database } from '@nozbe/watermelondb';
 import Machine from '@/db/models/Machine.model';
 import { MACHINE_TAXONOMY, SEED_CATEGORIES } from '@/constants/machineTaxonomy';
+import { useHseTypeNames } from '@/services/hseGuidance';
 
 // Capitalise first character only — prevents "lathe"/"Lathe" split without
 // aggressively reformatting user input (e.g. "CNC Lathe" stays intact).
@@ -61,12 +62,19 @@ export function useMachineSuggestions(
       .catch(() => setMachines([]));
   }, [db, excludeId]);
 
+  const typeNames = useHseTypeNames();
   const categorySuggestions = useMemo(() => {
     const dbCategories = rankByFrequency(machines.map(m => m.machineCategory));
     const dbSet = new Set(dbCategories.map(c => c.toLowerCase()));
     const seedOnly = SEED_CATEGORIES.filter(c => !dbSet.has(c.toLowerCase()));
-    return [...dbCategories, ...seedOnly];
-  }, [machines]);
+    const learned = [...dbCategories, ...seedOnly];
+    // Once something is typed, HSE machine type names lead: picking one is
+    // matched to guidance at once (services/hseGuidance.ts). Before that, the
+    // most-used categories are the more useful first eight.
+    if (!currentCategory.trim()) return learned;
+    const typeSet = new Set(typeNames.map(t => t.toLowerCase()));
+    return [...typeNames, ...learned.filter(c => !typeSet.has(c.toLowerCase()))];
+  }, [machines, typeNames, currentCategory]);
 
   const useSuggestions = useMemo(() => {
     const normalizedCategory = currentCategory.trim().toLowerCase();

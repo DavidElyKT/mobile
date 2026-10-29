@@ -8,6 +8,7 @@ import type SiteRoute from '@/db/models/SiteRoute.model';
 import type SiteRouteStop from '@/db/models/SiteRouteStop.model';
 import type Assembly from '@/db/models/Assembly.model';
 import { currentIndex, RETURN_LABEL } from '@/services/routeLogic';
+import { useRouteProgress } from '@/services/routeProgress';
 
 export interface RouteSummary {
   route: SiteRoute;
@@ -26,6 +27,8 @@ export function useRouteSummaries(): RouteSummary[] {
   const routes = useQuery<SiteRoute>(db.get<SiteRoute>('site_routes').query());
   const stops = useQuery<SiteRouteStop>(db.get<SiteRouteStop>('site_route_stops').query());
   const assets = useQuery<Assembly>(db.get<Assembly>('assemblies').query());
+  // This phone's own progress, not the route's (services/routeProgress.ts).
+  const progress = useRouteProgress();
 
   return useMemo(() => {
     const visible = new Map(filterDemoSites(sites, isDemoMode).map((s) => [s.id, s]));
@@ -40,14 +43,15 @@ export function useRouteSummaries(): RouteSummary[] {
     for (const route of routes) {
       const site = visible.get(route.siteId);
       if (!site) continue;
-      const list = (byRoute.get(route.id) ?? []).sort((a, b) => a.sequence - b.sequence);
-      const now = currentIndex(list.map((s) => s.status));
+      const list = progress.ordered(route, (byRoute.get(route.id) ?? []).sort((a, b) => a.sequence - b.sequence));
+      const statuses = list.map((s) => progress.statusOf(route, s));
+      const now = currentIndex(statuses);
       const next = now >= 0 ? list[now] : null;
       out.push({
         route,
         site,
         total: list.length,
-        closed: list.filter((s) => s.status === 'done' || s.status === 'skipped').length,
+        closed: statuses.filter((s) => s === 'done' || s === 'skipped').length,
         nextName: next
           ? next.stopKind === 'asset'
             ? assetName.get(next.assemblyId ?? '') ?? 'Asset'
@@ -57,5 +61,5 @@ export function useRouteSummaries(): RouteSummary[] {
     }
     return out.sort((a, b) =>
       a.route.routeDate < b.route.routeDate ? -1 : a.route.routeDate > b.route.routeDate ? 1 : 0);
-  }, [sites, routes, stops, assets, isDemoMode]);
+  }, [sites, routes, stops, assets, isDemoMode, progress]);
 }

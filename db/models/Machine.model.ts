@@ -1,8 +1,8 @@
 import { Model, Query } from '@nozbe/watermelondb';
 import { field, date, children, readonly, relation } from '@nozbe/watermelondb/decorators';
-import Assembly from './Assembly';
-import ChecklistInstance from './ChecklistInstance';
-import RiskEvaluation from './RiskEvaluation';
+import type Assembly from './Assembly.model';
+import type ChecklistInstance from './ChecklistInstance.model';
+import type RiskEvaluation from './RiskEvaluation.model';
 
 export default class Machine extends Model {
   static table = 'machines';
@@ -23,8 +23,8 @@ export default class Machine extends Model {
   @field('manufacturer') declare manufacturer: string;
   @field('model') declare model: string;
   @field('description') declare description: string;
-  @field('picture_url') declare pictureUrl: string;
-  @field('nameplate_photo_url') declare nameplatePhotoUrl: string;
+  @field('picture_url') declare pictureUrl: string | null;
+  @field('nameplate_photo_url') declare nameplatePhotoUrl: string | null;
   @field('is_synced') declare isSynced: boolean;
   @readonly @date('created_at') declare createdAt: Date;
   @date('updated_at') declare updatedAt: Date;

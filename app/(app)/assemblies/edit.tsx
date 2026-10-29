@@ -11,6 +11,8 @@ import { enqueuePhoto } from '@/services/photoQueue';
 import { useDemoMode } from '@/context/DemoModeContext';
 import { Colors } from '@/constants/Colors';
 import PhotoPicker from '@/components/PhotoPicker';
+import MachineCategoryField from '@/components/MachineCategoryField';
+import { normalizeEntry } from '@/hooks/useMachineSuggestions';
 import ModelShots from '@/components/ModelShots';
 import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 import DemoModeBlocked from '@/components/DemoModeBlocked';
@@ -37,6 +39,7 @@ export default function EditAssetScreen() {
   const [manufacturer, setManufacturer] = useState('');
   const [model, setModel] = useState('');
   const [serialNumber, setSerialNumber] = useState('');
+  const [machineCategory, setMachineCategory] = useState('');
   const [pictureUrl, setPictureUrl] = useState<string | null>(null);
   const [nameplateUrl, setNameplateUrl] = useState<string | null>(null);
 
@@ -63,6 +66,7 @@ export default function EditAssetScreen() {
       setManufacturer(rec.manufacturer ?? '');
       setModel(rec.model ?? '');
       setSerialNumber(rec.serialNumber ?? '');
+      setMachineCategory(rec.machineCategory ?? '');
       setPictureUrl(rec.pictureUrl ?? null);
       setNameplateUrl(rec.nameplatePhotoUrl ?? null);
       setLoading(false);
@@ -94,6 +98,7 @@ export default function EditAssetScreen() {
           a.manufacturer = assetType === 'standalone' ? manufacturer.trim() : '';
           a.model = assetType === 'standalone' ? model.trim() : '';
           a.serialNumber = assetType === 'standalone' ? serialNumber.trim() : '';
+          a.machineCategory = assetType === 'standalone' ? normalizeEntry(machineCategory) || null : null;
           a.pictureUrl = pictureUrl;
           a.nameplatePhotoUrl = assetType === 'standalone' ? nameplateUrl : null;
           a.isSynced = false;
@@ -206,6 +211,8 @@ export default function EditAssetScreen() {
           <Text style={styles.label}>Serial Number</Text>
           <TextInput style={styles.input} value={serialNumber} onChangeText={setSerialNumber}
             placeholder="Optional" placeholderTextColor={Colors.textLight} />
+          <MachineCategoryField value={machineCategory} onChange={setMachineCategory}
+            labelStyle={styles.label} inputStyle={styles.input} />
         </View>
       )}
 

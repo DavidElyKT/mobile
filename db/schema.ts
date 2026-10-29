@@ -60,8 +60,12 @@ import { appSchema, tableSchema } from '@nozbe/watermelondb';
 //      them to another day, and hands each leg to Google Maps. Asset coordinates
 //      are pull-only (the server drops them on push).
 
+// v23: machine_category on assemblies (server migration 090) — a standalone
+//      asset's own category, matched to HSE guidance like a sub-machine's.
+//      Synced both ways. Existing rows get NULL until the next pull.
+
 export default appSchema({
-  version: 22,
+  version: 23,
   tables: [
     tableSchema({
       name: 'checklist_frameworks',
@@ -173,6 +177,7 @@ export default appSchema({
         { name: 'manufacturer', type: 'string', isOptional: true },
         { name: 'model', type: 'string', isOptional: true },
         { name: 'serial_number', type: 'string', isOptional: true },
+        { name: 'machine_category', type: 'string', isOptional: true },  // v23, standalone only
         { name: 'picture_url', type: 'string', isOptional: true },
         { name: 'nameplate_photo_url', type: 'string', isOptional: true },
         // v22 — where the asset is, set at the desk. Pull-only.
@@ -325,7 +330,7 @@ export default appSchema({
         { name: 'floor_plan_id', type: 'string', isOptional: true },
         { name: 'location_x',    type: 'number', isOptional: true },
         { name: 'location_y',    type: 'number', isOptional: true },
-        { name: 'review_status',    type: 'string', isOptional: true }, // 'Pending' | 'Approved'
+        { name: 'review_status',    type: 'string', isOptional: true }, // ReviewStatus (RiskEvaluation.model.ts)
         { name: 'edited_reference', type: 'string', isOptional: true },
         { name: 'edited_hazard',    type: 'string', isOptional: true },
         { name: 'edited_control',   type: 'string', isOptional: true },

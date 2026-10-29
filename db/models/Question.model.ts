@@ -1,6 +1,6 @@
 import { Model } from '@nozbe/watermelondb';
 import { field, relation } from '@nozbe/watermelondb/decorators';
-import QuestionSet from './QuestionSet';
+import type QuestionSet from './QuestionSet.model';
 
 export default class Question extends Model {
   static table = 'questions';

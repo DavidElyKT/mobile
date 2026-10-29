@@ -1,6 +1,6 @@
 import { Model, Query } from '@nozbe/watermelondb';
 import { field, date, children, readonly } from '@nozbe/watermelondb/decorators';
-import Assembly from './Assembly';
+import type Assembly from './Assembly.model';
 
 export default class Site extends Model {
   static table = 'sites';

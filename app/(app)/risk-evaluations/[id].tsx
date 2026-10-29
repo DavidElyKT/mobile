@@ -20,6 +20,7 @@ import Site from '@/db/models/Site.model';
 import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 import CachedImage from '@/components/CachedImage';
+import EvalHseGuidance from '@/components/EvalHseGuidance';
 
 export default function RiskEvaluationDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -149,6 +150,11 @@ export default function RiskEvaluationDetailScreen() {
   return (
     <>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+        <EvalHseGuidance
+          style={styles.hseTop}
+          machineId={evaluation.machineId}
+          assemblyId={evaluation.assemblyId ?? machine?.assemblyId}
+        />
         {evaluation.nonComplianceReference ? (
           <View style={styles.refCard}>
             <Text style={styles.refLabel}>Hazard Title</Text>
@@ -345,6 +351,7 @@ function RiskBlock({ label, severity, probability, rating }: {
 }
 
 const styles = StyleSheet.create({
+  hseTop: { marginTop: 0, marginBottom: 14 },
   container: { flex: 1, backgroundColor: Colors.background },
   content: { padding: 19, paddingBottom: 48 },
 

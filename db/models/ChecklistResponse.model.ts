@@ -1,7 +1,7 @@
 import { Model } from '@nozbe/watermelondb';
 import { field, date, readonly, relation } from '@nozbe/watermelondb/decorators';
-import ChecklistInstance from './ChecklistInstance';
-import Question from './Question';
+import type ChecklistInstance from './ChecklistInstance.model';
+import type Question from './Question.model';
 
 export default class ChecklistResponse extends Model {
   static table = 'checklist_responses';

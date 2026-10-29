@@ -160,7 +160,7 @@ const FocusWizardModal = forwardRef<FocusWizardModalRef, Props>(function FocusWi
 
   const slideAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(1)).current;
-  const autoTimer = useRef<ReturnType<typeof setTimeout>>();
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const visibleRef = useRef(visible);
   const skipResetRef = useRef(false);
   const forcedDoneRef = useRef(false);

@@ -24,6 +24,7 @@ import FloorPlan from '@/db/models/FloorPlan.model';
 import FloorPlanMarker from '@/db/models/FloorPlanMarker.model';
 import RiskEvaluation from '@/db/models/RiskEvaluation.model';
 import CachedImage from '@/components/CachedImage';
+import HseGuidanceCard from '@/components/HseGuidanceCard';
 import ModelShots from '@/components/ModelShots';
 import { saveModelPhotos, loadSupplementaryShots, NO_SHOTS, type SupplementaryShots } from '@/services/modelPhotos';
 
@@ -286,6 +287,8 @@ export default function MachineDetailScreen() {
             <Text style={styles.desc}>{machine.description}</Text>
           ) : null}
         </View>
+
+        <HseGuidanceCard category={machine.machineCategory} />
 
         {/* Location on floor plan */}
         <View style={styles.locationCard}>
